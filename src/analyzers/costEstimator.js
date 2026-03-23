@@ -246,8 +246,7 @@ function estimateCost(slicerResult, options = {}) {
   const pricePerGram = pricePerKg / 1000;
   const materialCost = totalFilament.weightGrams * pricePerGram;
   const modelMatCost = modelFilament.weightGrams * pricePerGram;
-  const supportMatCost =
-    supportFilament.weightGrams * pricePerGram * wasteFactor;
+  const supportMatCost = supportFilament.weightGrams * pricePerGram;
 
   // ── Время печати ──────────────────────────────────────────────────────────
   const printTimeSec = estimatePrintTimeSec(slicerResult, {

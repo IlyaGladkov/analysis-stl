@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 /**
  * Sample STL Generator
@@ -14,12 +14,14 @@
  *  - overhangTest()   — a model with deliberate overhangs to test support detection
  */
 
-const fs   = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 // ─── Vector helpers ───────────────────────────────────────────────────────────
 
-function vec3(x, y, z) { return { x, y, z }; }
+function vec3(x, y, z) {
+  return { x, y, z };
+}
 
 function vecSub(a, b) {
   return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
@@ -51,7 +53,7 @@ function makeTri(v1, v2, v3) {
 
 function writeBinarySTL(triangles, outputPath) {
   const headerBuf = Buffer.alloc(80, 0);
-  headerBuf.write('STL Analyzer — sample geometry', 0, 'ascii');
+  headerBuf.write("STL Analyzer — sample geometry", 0, "ascii");
 
   const countBuf = Buffer.alloc(4);
   countBuf.writeUInt32LE(triangles.length, 0);
@@ -61,21 +63,30 @@ function writeBinarySTL(triangles, outputPath) {
     let off = 0;
 
     const n = tri.normal;
-    buf.writeFloatLE(n.x, off); off += 4;
-    buf.writeFloatLE(n.y, off); off += 4;
-    buf.writeFloatLE(n.z, off); off += 4;
+    buf.writeFloatLE(n.x, off);
+    off += 4;
+    buf.writeFloatLE(n.y, off);
+    off += 4;
+    buf.writeFloatLE(n.z, off);
+    off += 4;
 
     for (const v of [tri.v1, tri.v2, tri.v3]) {
-      buf.writeFloatLE(v.x, off); off += 4;
-      buf.writeFloatLE(v.y, off); off += 4;
-      buf.writeFloatLE(v.z, off); off += 4;
+      buf.writeFloatLE(v.x, off);
+      off += 4;
+      buf.writeFloatLE(v.y, off);
+      off += 4;
+      buf.writeFloatLE(v.z, off);
+      off += 4;
     }
 
     buf.writeUInt16LE(0, off);
     return buf;
   });
 
-  fs.writeFileSync(outputPath, Buffer.concat([headerBuf, countBuf, ...triBufs]));
+  fs.writeFileSync(
+    outputPath,
+    Buffer.concat([headerBuf, countBuf, ...triBufs]),
+  );
   return outputPath;
 }
 
@@ -90,14 +101,14 @@ function generateCube(size = 20) {
 
   // 8 vertices
   const v = {
-    lbf: vec3(-h, -h, -h),  // left-bottom-front
-    rbf: vec3( h, -h, -h),
-    rtf: vec3( h,  h, -h),
-    ltf: vec3(-h,  h, -h),
-    lbb: vec3(-h, -h,  h),  // left-bottom-back
-    rbb: vec3( h, -h,  h),
-    rtb: vec3( h,  h,  h),
-    ltb: vec3(-h,  h,  h),
+    lbf: vec3(-h, -h, -h), // left-bottom-front
+    rbf: vec3(h, -h, -h),
+    rtf: vec3(h, h, -h),
+    ltf: vec3(-h, h, -h),
+    lbb: vec3(-h, -h, h), // left-bottom-back
+    rbb: vec3(h, -h, h),
+    rtb: vec3(h, h, h),
+    ltb: vec3(-h, h, h),
   };
 
   const tris = [];
@@ -139,24 +150,52 @@ function generateCube(size = 20) {
 function generateSphere(radius = 15, segments = 24) {
   const tris = [];
 
-  for (let lat = 0; lat < segments; lat++) {
-    const theta0 = (lat       / segments) * Math.PI;
-    const theta1 = ((lat + 1) / segments) * Math.PI;
+  // Pre-compute all rings of vertices to avoid duplicate pole points
+  // ring[0] = north pole (single point), ring[segments] = south pole (single point)
+  // ring[i] for 1 <= i < segments: array of `segments` points
 
-    for (let lon = 0; lon < segments; lon++) {
-      const phi0 = (lon       / segments) * 2 * Math.PI;
-      const phi1 = ((lon + 1) / segments) * 2 * Math.PI;
-
-      const v00 = spherePoint(radius, theta0, phi0);
-      const v10 = spherePoint(radius, theta1, phi0);
-      const v01 = spherePoint(radius, theta0, phi1);
-      const v11 = spherePoint(radius, theta1, phi1);
-
-      // Skip degenerate triangles at poles
-      if (lat !== 0) {
-        tris.push(makeTri(v00, v10, v11));
+  const rings = [];
+  for (let lat = 0; lat <= segments; lat++) {
+    const theta = (lat / segments) * Math.PI;
+    if (lat === 0) {
+      // North pole — single shared vertex
+      rings.push(spherePoint(radius, theta, 0));
+    } else if (lat === segments) {
+      // South pole — single shared vertex
+      rings.push(spherePoint(radius, theta, 0));
+    } else {
+      const ring = [];
+      for (let lon = 0; lon < segments; lon++) {
+        const phi = (lon / segments) * 2 * Math.PI;
+        ring.push(spherePoint(radius, theta, phi));
       }
-      if (lat !== segments - 1) {
+      rings.push(ring);
+    }
+  }
+
+  for (let lat = 0; lat < segments; lat++) {
+    for (let lon = 0; lon < segments; lon++) {
+      const lon1 = (lon + 1) % segments;
+
+      if (lat === 0) {
+        // North-pole cap: single apex + one edge of the first ring
+        const apex = rings[0];
+        const v10 = rings[1][lon];
+        const v11 = rings[1][lon1];
+        tris.push(makeTri(apex, v10, v11));
+      } else if (lat === segments - 1) {
+        // South-pole cap: one edge of the last full ring + single apex
+        const v00 = rings[lat][lon];
+        const v01 = rings[lat][lon1];
+        const apex = rings[segments];
+        tris.push(makeTri(v00, apex, v01));
+      } else {
+        // Middle band: two triangles per quad
+        const v00 = rings[lat][lon];
+        const v10 = rings[lat + 1][lon];
+        const v01 = rings[lat][lon1];
+        const v11 = rings[lat + 1][lon1];
+        tris.push(makeTri(v00, v10, v11));
         tris.push(makeTri(v00, v11, v01));
       }
     }
@@ -169,7 +208,7 @@ function spherePoint(r, theta, phi) {
   return vec3(
     r * Math.sin(theta) * Math.cos(phi),
     r * Math.sin(theta) * Math.sin(phi),
-    r * Math.cos(theta)
+    r * Math.cos(theta),
   );
 }
 
@@ -183,20 +222,20 @@ function spherePoint(r, theta, phi) {
  */
 function generateCylinder(radius = 10, height = 30, segments = 32) {
   const tris = [];
-  const topZ    =  height / 2;
+  const topZ = height / 2;
   const bottomZ = -height / 2;
 
-  const topCenter    = vec3(0, 0, topZ);
+  const topCenter = vec3(0, 0, topZ);
   const bottomCenter = vec3(0, 0, bottomZ);
 
-  const topRing    = [];
+  const topRing = [];
   const bottomRing = [];
 
   for (let i = 0; i < segments; i++) {
     const angle = (i / segments) * 2 * Math.PI;
     const x = Math.cos(angle) * radius;
     const y = Math.sin(angle) * radius;
-    topRing.push(   vec3(x, y, topZ));
+    topRing.push(vec3(x, y, topZ));
     bottomRing.push(vec3(x, y, bottomZ));
   }
 
@@ -204,8 +243,8 @@ function generateCylinder(radius = 10, height = 30, segments = 32) {
     const j = (i + 1) % segments;
 
     // Side wall — two triangles per quad
-    tris.push(makeTri(topRing[i],    bottomRing[i], bottomRing[j]));
-    tris.push(makeTri(topRing[i],    bottomRing[j], topRing[j]));
+    tris.push(makeTri(topRing[i], bottomRing[i], bottomRing[j]));
+    tris.push(makeTri(topRing[i], bottomRing[j], topRing[j]));
 
     // Top cap
     tris.push(makeTri(topCenter, topRing[j], topRing[i]));
@@ -226,35 +265,44 @@ function generateCylinder(radius = 10, height = 30, segments = 32) {
  * @param {number} majorSeg     - segments around the torus ring
  * @param {number} minorSeg     - segments around the tube cross-section
  */
-function generateTorus(majorRadius = 20, minorRadius = 6, majorSeg = 36, minorSeg = 18) {
+function generateTorus(
+  majorRadius = 20,
+  minorRadius = 6,
+  majorSeg = 36,
+  minorSeg = 18,
+) {
   const tris = [];
 
-  // Build vertex grid
+  // Build vertex grid — only [0..majorSeg-1][0..minorSeg-1] unique vertices.
+  // The last row/column wraps back to index 0 to guarantee exact vertex reuse
+  // and avoid floating-point seam mismatches (e.g. sin(2π) ≠ 0 exactly).
   const grid = [];
-  for (let i = 0; i <= majorSeg; i++) {
-    const u     = (i / majorSeg) * 2 * Math.PI;
-    const cosU  = Math.cos(u);
-    const sinU  = Math.sin(u);
-    const row   = [];
-    for (let j = 0; j <= minorSeg; j++) {
-      const v    = (j / minorSeg) * 2 * Math.PI;
+  for (let i = 0; i < majorSeg; i++) {
+    const u = (i / majorSeg) * 2 * Math.PI;
+    const cosU = Math.cos(u);
+    const sinU = Math.sin(u);
+    const row = [];
+    for (let j = 0; j < minorSeg; j++) {
+      const v = (j / minorSeg) * 2 * Math.PI;
       const cosV = Math.cos(v);
       const sinV = Math.sin(v);
-      const x    = (majorRadius + minorRadius * cosV) * cosU;
-      const y    = (majorRadius + minorRadius * cosV) * sinU;
-      const z    = minorRadius * sinV;
+      const x = (majorRadius + minorRadius * cosV) * cosU;
+      const y = (majorRadius + minorRadius * cosV) * sinU;
+      const z = minorRadius * sinV;
       row.push(vec3(x, y, z));
     }
     grid.push(row);
   }
 
-  // Build triangles from grid quads
+  // Build triangles from grid quads, wrapping indices with modulo
   for (let i = 0; i < majorSeg; i++) {
+    const i1 = (i + 1) % majorSeg;
     for (let j = 0; j < minorSeg; j++) {
-      const v00 = grid[i    ][j    ];
-      const v10 = grid[i + 1][j    ];
-      const v01 = grid[i    ][j + 1];
-      const v11 = grid[i + 1][j + 1];
+      const j1 = (j + 1) % minorSeg;
+      const v00 = grid[i][j];
+      const v10 = grid[i1][j];
+      const v01 = grid[i][j1];
+      const v11 = grid[i1][j1];
 
       tris.push(makeTri(v00, v10, v11));
       tris.push(makeTri(v00, v11, v01));
@@ -282,38 +330,20 @@ function generateOverhangTest() {
   const tris = [];
 
   // ── Base block: 30×30×15 mm ───────────────────────────────────────────────
-  tris.push(...boxTriangles(
-    vec3(-15, -15, 0),
-    vec3( 15,  15, 15)
-  ));
+  tris.push(...boxTriangles(vec3(-15, -15, 0), vec3(15, 15, 15)));
 
   // ── Horizontal arm: 30×10×5 mm, starting at Z=15, cantilevered in +X ─────
   // This arm overhangs in X from X=15 to X=45  (full overhang, 90°)
-  tris.push(...boxTriangles(
-    vec3(15, -5, 15),
-    vec3(45,  5, 20)
-  ));
+  tris.push(...boxTriangles(vec3(15, -5, 15), vec3(45, 5, 20)));
 
   // ── Staircase overhangs (each step overhangs 5 mm in X) ──────────────────
   // Step 1: 30° overhang  (gentle)
-  tris.push(...boxTriangles(
-    vec3(-15, 20, 0),
-    vec3(  0, 30, 10)
-  ));
-  tris.push(...boxTriangles(
-    vec3(  0, 20, 5),
-    vec3( 10, 30, 15)
-  ));
+  tris.push(...boxTriangles(vec3(-15, 20, 0), vec3(0, 30, 10)));
+  tris.push(...boxTriangles(vec3(0, 20, 5), vec3(10, 30, 15)));
 
   // Step 2: 60° overhang  (steep — needs support)
-  tris.push(...boxTriangles(
-    vec3(-15, -45, 0),
-    vec3(  0, -35, 10)
-  ));
-  tris.push(...boxTriangles(
-    vec3(  0, -45, 8),
-    vec3( 15, -35, 18)
-  ));
+  tris.push(...boxTriangles(vec3(-15, -45, 0), vec3(0, -35, 10)));
+  tris.push(...boxTriangles(vec3(0, -45, 8), vec3(15, -35, 18)));
 
   return tris;
 }
@@ -339,17 +369,23 @@ function boxTriangles(min, max) {
 
   return [
     // Bottom (z0)
-    makeTri(a, c, b), makeTri(a, d, c),
+    makeTri(a, c, b),
+    makeTri(a, d, c),
     // Top    (z1)
-    makeTri(e, f, g), makeTri(e, g, h),
+    makeTri(e, f, g),
+    makeTri(e, g, h),
     // Front  (y0)
-    makeTri(a, b, f), makeTri(a, f, e),
+    makeTri(a, b, f),
+    makeTri(a, f, e),
     // Back   (y1)
-    makeTri(d, g, c), makeTri(d, h, g),
+    makeTri(d, g, c),
+    makeTri(d, h, g),
     // Left   (x0)
-    makeTri(a, e, h), makeTri(a, h, d),
+    makeTri(a, e, h),
+    makeTri(a, h, d),
     // Right  (x1)
-    makeTri(b, c, g), makeTri(b, g, f),
+    makeTri(b, c, g),
+    makeTri(b, g, f),
   ];
 }
 
@@ -372,38 +408,44 @@ function generateSampleSTL(shape, outputDir, params = {}) {
   let fileName;
 
   switch (shape.toLowerCase()) {
-    case 'cube':
+    case "cube":
       triangles = generateCube(params.size || 20);
-      fileName  = `sample_cube_${params.size || 20}mm.stl`;
+      fileName = `sample_cube_${params.size || 20}mm.stl`;
       break;
 
-    case 'sphere':
+    case "sphere":
       triangles = generateSphere(params.radius || 15, params.segments || 24);
-      fileName  = `sample_sphere_r${params.radius || 15}mm.stl`;
+      fileName = `sample_sphere_r${params.radius || 15}mm.stl`;
       break;
 
-    case 'cylinder':
-      triangles = generateCylinder(params.radius || 10, params.height || 30, params.segments || 32);
-      fileName  = `sample_cylinder_r${params.radius || 10}h${params.height || 30}mm.stl`;
+    case "cylinder":
+      triangles = generateCylinder(
+        params.radius || 10,
+        params.height || 30,
+        params.segments || 32,
+      );
+      fileName = `sample_cylinder_r${params.radius || 10}h${params.height || 30}mm.stl`;
       break;
 
-    case 'torus':
+    case "torus":
       triangles = generateTorus(
         params.majorRadius || 20,
         params.minorRadius || 6,
-        params.majorSeg    || 36,
-        params.minorSeg    || 18
+        params.majorSeg || 36,
+        params.minorSeg || 18,
       );
       fileName = `sample_torus_R${params.majorRadius || 20}r${params.minorRadius || 6}mm.stl`;
       break;
 
-    case 'overhang':
+    case "overhang":
       triangles = generateOverhangTest();
-      fileName  = 'sample_overhang_test.stl';
+      fileName = "sample_overhang_test.stl";
       break;
 
     default:
-      throw new Error(`Unknown shape: "${shape}". Choose: cube, sphere, cylinder, torus, overhang`);
+      throw new Error(
+        `Unknown shape: "${shape}". Choose: cube, sphere, cylinder, torus, overhang`,
+      );
   }
 
   const outputPath = path.join(outputDir, fileName);
@@ -419,14 +461,16 @@ function generateSampleSTL(shape, outputDir, params = {}) {
  */
 function generateAllSamples(outputDir) {
   const shapes = [
-    { shape: 'cube',     params: { size: 20 }                          },
-    { shape: 'sphere',   params: { radius: 15, segments: 32 }          },
-    { shape: 'cylinder', params: { radius: 10, height: 30, segments: 32 } },
-    { shape: 'torus',    params: { majorRadius: 20, minorRadius: 6 }   },
-    { shape: 'overhang', params: {}                                     },
+    { shape: "cube", params: { size: 20 } },
+    { shape: "sphere", params: { radius: 15, segments: 32 } },
+    { shape: "cylinder", params: { radius: 10, height: 30, segments: 32 } },
+    { shape: "torus", params: { majorRadius: 20, minorRadius: 6 } },
+    { shape: "overhang", params: {} },
   ];
 
-  return shapes.map(({ shape, params }) => generateSampleSTL(shape, outputDir, params));
+  return shapes.map(({ shape, params }) =>
+    generateSampleSTL(shape, outputDir, params),
+  );
 }
 
 module.exports = {

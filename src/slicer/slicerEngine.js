@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 /**
  * Slicer Engine
@@ -17,9 +17,15 @@
 
 // ─── Vector / math helpers ────────────────────────────────────────────────────
 
-function vecSub(a, b)  { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
-function vecAdd(a, b)  { return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }; }
-function vecScale(a, s){ return { x: a.x * s,   y: a.y * s,   z: a.z * s   }; }
+function vecSub(a, b) {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+function vecAdd(a, b) {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+function vecScale(a, s) {
+  return { x: a.x * s, y: a.y * s, z: a.z * s };
+}
 function vecCross(a, b) {
   return {
     x: a.y * b.z - a.z * b.y,
@@ -27,8 +33,12 @@ function vecCross(a, b) {
     z: a.x * b.y - a.y * b.x,
   };
 }
-function vecDot(a, b)  { return a.x * b.x + a.y * b.y + a.z * b.z; }
-function vecLen(a)     { return Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z); }
+function vecDot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+function vecLen(a) {
+  return Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+}
 function vecNorm(a) {
   const l = vecLen(a);
   if (l < 1e-12) return { x: 0, y: 0, z: 0 };
@@ -62,15 +72,20 @@ function intersectTrianglePlane(v1, v2, v3, planeZ) {
   const d2 = v2.z - planeZ;
   const d3 = v3.z - planeZ;
 
-  const above1 = d1 > 0;
-  const above2 = d2 > 0;
-  const above3 = d3 > 0;
+  const above1 = d1 > 1e-9;
+  const above2 = d2 > 1e-9;
+  const above3 = d3 > 1e-9;
+  const below1 = d1 < -1e-9;
+  const below2 = d2 < -1e-9;
+  const below3 = d3 < -1e-9;
 
   // All on the same side → no intersection
-  if (above1 === above2 && above2 === above3) return null;
+  const anyAbove = above1 || above2 || above3;
+  const anyBelow = below1 || below2 || below3;
+  if (!anyAbove || !anyBelow) return null;
 
-  const verts  = [v1, v2, v3];
-  const dists  = [d1, d2, d3];
+  const verts = [v1, v2, v3];
+  const dists = [d1, d2, d3];
   const points = [];
 
   for (let i = 0; i < 3; i++) {
@@ -87,11 +102,14 @@ function intersectTrianglePlane(v1, v2, v3, planeZ) {
     }
   }
 
-  // Deduplicate
+  // Deduplicate (check all three coordinates)
   const unique = [];
   for (const p of points) {
     const already = unique.some(
-      u => Math.abs(u.x - p.x) < 1e-9 && Math.abs(u.y - p.y) < 1e-9
+      (u) =>
+        Math.abs(u.x - p.x) < 1e-9 &&
+        Math.abs(u.y - p.y) < 1e-9 &&
+        Math.abs(u.z - p.z) < 1e-9,
     );
     if (!already) unique.push(p);
   }
@@ -120,8 +138,8 @@ function chainSegments(segments) {
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
-    addPoint(ptKey2D(seg.a), i, 'a');
-    addPoint(ptKey2D(seg.b), i, 'b');
+    addPoint(ptKey2D(seg.a), i, "a");
+    addPoint(ptKey2D(seg.b), i, "b");
   }
 
   const used = new Array(segments.length).fill(false);
@@ -131,8 +149,8 @@ function chainSegments(segments) {
     if (used[startIdx]) continue;
 
     const contour = [];
-    let   segIdx  = startIdx;
-    let   fromEnd = 'a'; // we'll traverse from b
+    let segIdx = startIdx;
+    let fromEnd = "a"; // we'll traverse from b
 
     // Start point
     contour.push({ ...segments[startIdx].a });
@@ -143,7 +161,7 @@ function chainSegments(segments) {
 
     // Walk the chain
     for (let step = 0; step < segments.length * 2; step++) {
-      const key  = ptKey2D(currentPt);
+      const key = ptKey2D(currentPt);
       const neighbors = adj.get(key) || [];
 
       let found = false;
@@ -152,7 +170,7 @@ function chainSegments(segments) {
 
         used[nIdx] = true;
         const seg = segments[nIdx];
-        const nextPt = nEnd === 'a' ? seg.b : seg.a;
+        const nextPt = nEnd === "a" ? seg.b : seg.a;
         contour.push({ ...nextPt });
         currentPt = nextPt;
         found = true;
@@ -163,8 +181,11 @@ function chainSegments(segments) {
 
       // Check if closed
       const first = contour[0];
-      const last  = contour[contour.length - 1];
-      if (Math.abs(first.x - last.x) < 1e-6 && Math.abs(first.y - last.y) < 1e-6) {
+      const last = contour[contour.length - 1];
+      if (
+        Math.abs(first.x - last.x) < 1e-6 &&
+        Math.abs(first.y - last.y) < 1e-6
+      ) {
         contour.pop(); // remove duplicate closing point
         break;
       }
@@ -194,8 +215,12 @@ function polygonArea2D(pts) {
 // ─── Polygon centroid ─────────────────────────────────────────────────────────
 
 function polygonCentroid2D(pts) {
-  let cx = 0, cy = 0;
-  for (const p of pts) { cx += p.x; cy += p.y; }
+  let cx = 0,
+    cy = 0;
+  for (const p of pts) {
+    cx += p.x;
+    cy += p.y;
+  }
   return { x: cx / pts.length, y: cy / pts.length };
 }
 
@@ -215,9 +240,11 @@ function isOverhang(normal, v1, v2, v3, overhangAngleDeg, buildPlateZ) {
   // Compute the actual face normal from vertices (more reliable than stored normal)
   const ab = vecSub(v2, v1);
   const ac = vecSub(v3, v1);
-  const faceNormal = vecNorm(vecCross(ab, ac));
+  const rawNormal = vecCross(ab, ac);
 
-  if (vecLen(faceNormal) < 1e-10) return false; // degenerate
+  if (vecLen(rawNormal) < 1e-10) return false; // degenerate triangle
+
+  const faceNormal = vecNorm(rawNormal);
 
   const minZ = Math.min(v1.z, v2.z, v3.z);
 
@@ -244,8 +271,8 @@ function isOverhang(normal, v1, v2, v3, overhangAngleDeg, buildPlateZ) {
  *   { baseX, baseY, topZ, bottomZ, radius }
  */
 function generateSupportPillars(overhangTriangles, options = {}) {
-  const supportRadius  = options.supportRadius  || 0.4;  // mm  (nozzle width)
-  const buildPlateZ    = options.buildPlateZ    || 0;
+  const supportRadius = options.supportRadius || 0.4; // mm  (nozzle width)
+  const buildPlateZ = options.buildPlateZ || 0;
 
   const pillars = [];
 
@@ -253,14 +280,14 @@ function generateSupportPillars(overhangTriangles, options = {}) {
     // Place a pillar at the centroid of the overhang triangle
     const cx = (v1.x + v2.x + v3.x) / 3;
     const cy = (v1.y + v2.y + v3.y) / 3;
-    const topZ    = Math.min(v1.z, v2.z, v3.z);
+    const topZ = Math.min(v1.z, v2.z, v3.z);
     const bottomZ = buildPlateZ;
 
     if (topZ <= bottomZ) continue;
 
     // Check if an existing nearby pillar already covers this spot
     const nearby = pillars.find(
-      p => Math.hypot(p.baseX - cx, p.baseY - cy) < supportRadius * 3
+      (p) => Math.hypot(p.baseX - cx, p.baseY - cy) < supportRadius * 3,
     );
     if (nearby) {
       // Extend existing pillar if needed
@@ -268,7 +295,13 @@ function generateSupportPillars(overhangTriangles, options = {}) {
       continue;
     }
 
-    pillars.push({ baseX: cx, baseY: cy, topZ, bottomZ, radius: supportRadius });
+    pillars.push({
+      baseX: cx,
+      baseY: cy,
+      topZ,
+      bottomZ,
+      radius: supportRadius,
+    });
   }
 
   return pillars;
@@ -284,31 +317,51 @@ function pillarToTriangles(pillar, sides = 8) {
   const angleStep = (2 * Math.PI) / sides;
 
   // Build top and bottom rings
-  const topRing    = [];
+  const topRing = [];
   const bottomRing = [];
   for (let i = 0; i < sides; i++) {
     const angle = i * angleStep;
     const x = Math.cos(angle) * radius;
     const y = Math.sin(angle) * radius;
-    topRing.push(   { x: baseX + x, y: baseY + y, z: topZ    });
+    topRing.push({ x: baseX + x, y: baseY + y, z: topZ });
     bottomRing.push({ x: baseX + x, y: baseY + y, z: bottomZ });
   }
 
-  const topCenter    = { x: baseX, y: baseY, z: topZ    };
+  const topCenter = { x: baseX, y: baseY, z: topZ };
   const bottomCenter = { x: baseX, y: baseY, z: bottomZ };
 
   for (let i = 0; i < sides; i++) {
     const j = (i + 1) % sides;
 
     // Side quad → 2 triangles
-    tris.push({ normal: { x: 0, y: 0, z: 0 }, v1: topRing[i],    v2: bottomRing[i], v3: bottomRing[j] });
-    tris.push({ normal: { x: 0, y: 0, z: 0 }, v1: topRing[i],    v2: bottomRing[j], v3: topRing[j]    });
+    tris.push({
+      normal: { x: 0, y: 0, z: 0 },
+      v1: topRing[i],
+      v2: bottomRing[i],
+      v3: bottomRing[j],
+    });
+    tris.push({
+      normal: { x: 0, y: 0, z: 0 },
+      v1: topRing[i],
+      v2: bottomRing[j],
+      v3: topRing[j],
+    });
 
     // Top cap
-    tris.push({ normal: { x: 0, y: 0, z: 1  }, v1: topCenter,    v2: topRing[j],    v3: topRing[i]    });
+    tris.push({
+      normal: { x: 0, y: 0, z: 1 },
+      v1: topCenter,
+      v2: topRing[j],
+      v3: topRing[i],
+    });
 
     // Bottom cap
-    tris.push({ normal: { x: 0, y: 0, z: -1 }, v1: bottomCenter, v2: bottomRing[i], v3: bottomRing[j] });
+    tris.push({
+      normal: { x: 0, y: 0, z: -1 },
+      v1: bottomCenter,
+      v2: bottomRing[i],
+      v3: bottomRing[j],
+    });
   }
 
   return tris;
@@ -326,9 +379,9 @@ function pillarToTriangles(pillar, sides = 8) {
  * Returns mm³ of filament for this layer.
  */
 function layerFilamentVolume(contours, layerHeight, options = {}) {
-  const nozzleDiameter  = options.nozzleDiameter  || 0.4;   // mm
-  const infillDensity   = options.infillDensity    || 0.20;  // 0–1
-  const shellCount      = options.shellCount       || 3;
+  const nozzleDiameter = options.nozzleDiameter || 0.4; // mm
+  const infillDensity = options.infillDensity || 0.2; // 0–1
+  const shellCount = options.shellCount || 3;
 
   let totalVolume = 0;
 
@@ -347,7 +400,10 @@ function layerFilamentVolume(contours, layerHeight, options = {}) {
     const shellVolume = perimeter * nozzleDiameter * layerHeight * shellCount;
 
     // Infill volume (area minus shell area, approximated)
-    const innerArea   = Math.max(0, area - perimeter * nozzleDiameter * shellCount);
+    const innerArea = Math.max(
+      0,
+      area - perimeter * nozzleDiameter * shellCount,
+    );
     const infillVolume = innerArea * layerHeight * infillDensity;
 
     totalVolume += shellVolume + infillVolume;
@@ -374,18 +430,18 @@ function layerFilamentVolume(contours, layerHeight, options = {}) {
  */
 function slice(triangles, options = {}) {
   if (!triangles || triangles.length === 0) {
-    throw new Error('No triangles provided to slicer.');
+    throw new Error("No triangles provided to slicer.");
   }
 
-  const layerHeight    = options.layerHeight    || 0.2;
-  const overhangAngle  = options.overhangAngle  || 45;
+  const layerHeight = options.layerHeight || 0.2;
+  const overhangAngle = options.overhangAngle || 45;
   const nozzleDiameter = options.nozzleDiameter || 0.4;
-  const infillDensity  = options.infillDensity  || 0.20;
-  const shellCount     = options.shellCount     || 3;
-  const supportRadius  = options.supportRadius  || 0.4;
+  const infillDensity = options.infillDensity || 0.2;
+  const shellCount = options.shellCount || 3;
+  const supportRadius = options.supportRadius || 0.4;
 
   // ── Find Z extents ───────────────────────────────────────────────────────────
-  let minZ =  Infinity;
+  let minZ = Infinity;
   let maxZ = -Infinity;
   for (const { v1, v2, v3 } of triangles) {
     for (const v of [v1, v2, v3]) {
@@ -394,12 +450,13 @@ function slice(triangles, options = {}) {
     }
   }
 
-  const buildPlateZ = options.buildPlateZ !== undefined ? options.buildPlateZ : minZ;
+  const buildPlateZ =
+    options.buildPlateZ !== undefined ? options.buildPlateZ : minZ;
   const modelHeight = maxZ - minZ;
 
   if (modelHeight < layerHeight) {
     throw new Error(
-      `Model height (${modelHeight.toFixed(3)} mm) is less than layer height (${layerHeight} mm).`
+      `Model height (${modelHeight.toFixed(3)} mm) is less than layer height (${layerHeight} mm).`,
     );
   }
 
@@ -408,7 +465,9 @@ function slice(triangles, options = {}) {
   // ── Identify overhang triangles ──────────────────────────────────────────────
   const overhangTriangles = [];
   for (const tri of triangles) {
-    if (isOverhang(tri.normal, tri.v1, tri.v2, tri.v3, overhangAngle, buildPlateZ)) {
+    if (
+      isOverhang(tri.normal, tri.v1, tri.v2, tri.v3, overhangAngle, buildPlateZ)
+    ) {
       overhangTriangles.push(tri);
     }
   }
@@ -430,15 +489,15 @@ function slice(triangles, options = {}) {
 
   // Pre-bucket triangles by Z range for performance
   // Each triangle spans [triMinZ, triMaxZ]
-  const triBuckets = triangles.map(tri => {
+  const triBuckets = triangles.map((tri) => {
     const zVals = [tri.v1.z, tri.v2.z, tri.v3.z];
     return { tri, zMin: Math.min(...zVals), zMax: Math.max(...zVals) };
   });
 
-  let totalFilamentMm3   = 0;
-  let totalSupportMm3    = 0;
-  let layerWithMaxArea   = null;
-  let maxLayerArea       = 0;
+  let totalFilamentMm3 = 0;
+  let totalSupportMm3 = 0;
+  let layerWithMaxArea = null;
+  let maxLayerArea = 0;
 
   for (let i = 0; i < layerCount; i++) {
     const zPlane = minZ + (i + 0.5) * layerHeight; // slice through the middle of each layer
@@ -481,25 +540,25 @@ function slice(triangles, options = {}) {
     }
 
     totalFilamentMm3 += filamentVol;
-    totalSupportMm3  += supportVolLayer;
+    totalSupportMm3 += supportVolLayer;
 
     if (layerArea > maxLayerArea) {
-      maxLayerArea     = layerArea;
+      maxLayerArea = layerArea;
       layerWithMaxArea = i + 1;
     }
 
     layers.push({
-      layerIndex:   i + 1,
-      zBottom:      parseFloat((minZ + i * layerHeight).toFixed(4)),
-      zTop:         parseFloat((minZ + (i + 1) * layerHeight).toFixed(4)),
-      zPlane:       parseFloat(zPlane.toFixed(4)),
+      layerIndex: i + 1,
+      zBottom: parseFloat((minZ + i * layerHeight).toFixed(4)),
+      zTop: parseFloat((minZ + (i + 1) * layerHeight).toFixed(4)),
+      zPlane: parseFloat(zPlane.toFixed(4)),
       segmentCount: segments.length,
       contourCount: contours.length,
-      contours,          // array of polygon point arrays
-      areaMm2:      parseFloat(layerArea.toFixed(4)),
-      filamentMm3:  parseFloat(filamentVol.toFixed(4)),
+      contours, // array of polygon point arrays
+      areaMm2: parseFloat(layerArea.toFixed(4)),
+      filamentMm3: parseFloat(filamentVol.toFixed(4)),
       hasSupportAt: supportPillars.some(
-        p => p.bottomZ <= zPlane && p.topZ >= zPlane
+        (p) => p.bottomZ <= zPlane && p.topZ >= zPlane,
       ),
     });
   }
@@ -517,8 +576,8 @@ function slice(triangles, options = {}) {
     },
 
     // Model Z range
-    modelMinZ:   parseFloat(minZ.toFixed(4)),
-    modelMaxZ:   parseFloat(maxZ.toFixed(4)),
+    modelMinZ: parseFloat(minZ.toFixed(4)),
+    modelMaxZ: parseFloat(maxZ.toFixed(4)),
     modelHeight: parseFloat(modelHeight.toFixed(4)),
 
     // Layer data
@@ -527,14 +586,16 @@ function slice(triangles, options = {}) {
 
     // Support data
     overhangTriangleCount: overhangTriangles.length,
-    supportPillarCount:    supportPillars.length,
+    supportPillarCount: supportPillars.length,
     supportPillars,
     supportTriangles,
 
     // Filament totals (mm³)
-    totalFilamentMm3:  parseFloat(totalFilamentMm3.toFixed(4)),
-    totalSupportMm3:   parseFloat(totalSupportMm3.toFixed(4)),
-    totalMaterialMm3:  parseFloat((totalFilamentMm3 + totalSupportMm3).toFixed(4)),
+    totalFilamentMm3: parseFloat(totalFilamentMm3.toFixed(4)),
+    totalSupportMm3: parseFloat(totalSupportMm3.toFixed(4)),
+    totalMaterialMm3: parseFloat(
+      (totalFilamentMm3 + totalSupportMm3).toFixed(4),
+    ),
 
     // Layer stats
     layerWithMaxArea,
