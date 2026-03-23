@@ -11,8 +11,25 @@
  *  2. For each layer Z, find all triangle–plane intersections → line segments
  *  3. Chain segments into closed contours (polygons)
  *  4. For each triangle, check if it is an overhang (normal Z < cos(threshold))
- *  5. Project overhang regions down to the build plate or nearest surface
- *  6. Output per-layer data + support triangles as a new STL
+ *     AND there is no model surface below (ray cast downward)
+ *  5. Place support points proportional to overhang triangle area
+ *  6. Generate supports in the chosen style: Linear | Grid | Tree
+ *  7. Output per-layer data + support triangles as a new STL
+ *
+ * Support types:
+ *  - "linear"  – simple vertical cylinders from overhang down to model/plate
+ *  - "grid"    – full rectangular grid under every overhang region
+ *  - "tree"    – branching tree: multiple tips merge into shared trunk columns
+ *
+ * Key improvements over v1:
+ *  - Support points are sampled proportional to overhang triangle area,
+ *    so large faces get adequate coverage.
+ *  - Ray cast downward: a support column stops at the first model surface
+ *    it hits, not always the build plate → reduces material waste.
+ *  - Air gap: support tops are pulled down by `airGap` mm so supports
+ *    detach cleanly from the model surface.
+ *  - Merging: nearby support points are deduplicated within `mergeRadius`.
+ *  - Three structural styles with appropriate geometry.
  */
 
 // ─── Vector / math helpers ────────────────────────────────────────────────────
@@ -79,7 +96,6 @@ function intersectTrianglePlane(v1, v2, v3, planeZ) {
   const below2 = d2 < -1e-9;
   const below3 = d3 < -1e-9;
 
-  // All on the same side → no intersection
   const anyAbove = above1 || above2 || above3;
   const anyBelow = below1 || below2 || below3;
   if (!anyAbove || !anyBelow) return null;
@@ -92,17 +108,14 @@ function intersectTrianglePlane(v1, v2, v3, planeZ) {
     const j = (i + 1) % 3;
     const di = dists[i];
     const dj = dists[j];
-    // Edge crosses the plane if signs differ
     if ((di > 0 && dj < 0) || (di < 0 && dj > 0)) {
       const t = di / (di - dj);
       points.push(lerp(t, verts[i], verts[j]));
     } else if (Math.abs(di) < 1e-9) {
-      // Vertex exactly on the plane
       points.push({ ...verts[i] });
     }
   }
 
-  // Deduplicate (check all three coordinates)
   const unique = [];
   for (const p of points) {
     const already = unique.some(
@@ -122,14 +135,11 @@ function intersectTrianglePlane(v1, v2, v3, planeZ) {
 
 /**
  * Chain an unordered array of 2D line segments into closed contours.
- * Each segment is { a: {x,y}, b: {x,y} }.
- * Returns an array of polygons, each polygon is an array of {x,y} points.
  */
 function chainSegments(segments) {
   if (segments.length === 0) return [];
 
-  // Build adjacency map: point key → [segment indices that touch this point]
-  const adj = new Map(); // ptKey → [ { segIdx, end: 'a'|'b' } ]
+  const adj = new Map();
 
   function addPoint(key, segIdx, end) {
     if (!adj.has(key)) adj.set(key, []);
@@ -150,16 +160,14 @@ function chainSegments(segments) {
 
     const contour = [];
     let segIdx = startIdx;
-    let fromEnd = "a"; // we'll traverse from b
+    let fromEnd = "a";
 
-    // Start point
     contour.push({ ...segments[startIdx].a });
     used[startIdx] = true;
 
     let currentPt = segments[startIdx].b;
     contour.push({ ...currentPt });
 
-    // Walk the chain
     for (let step = 0; step < segments.length * 2; step++) {
       const key = ptKey2D(currentPt);
       const neighbors = adj.get(key) || [];
@@ -179,14 +187,13 @@ function chainSegments(segments) {
 
       if (!found) break;
 
-      // Check if closed
       const first = contour[0];
       const last = contour[contour.length - 1];
       if (
         Math.abs(first.x - last.x) < 1e-6 &&
         Math.abs(first.y - last.y) < 1e-6
       ) {
-        contour.pop(); // remove duplicate closing point
+        contour.pop();
         break;
       }
     }
@@ -199,7 +206,7 @@ function chainSegments(segments) {
   return contours;
 }
 
-// ─── Polygon area (shoelace) ──────────────────────────────────────────────────
+// ─── Polygon helpers ──────────────────────────────────────────────────────────
 
 function polygonArea2D(pts) {
   let area = 0;
@@ -212,8 +219,6 @@ function polygonArea2D(pts) {
   return Math.abs(area) / 2;
 }
 
-// ─── Polygon centroid ─────────────────────────────────────────────────────────
-
 function polygonCentroid2D(pts) {
   let cx = 0,
     cy = 0;
@@ -224,80 +229,269 @@ function polygonCentroid2D(pts) {
   return { x: cx / pts.length, y: cy / pts.length };
 }
 
+// ─── Triangle geometry ────────────────────────────────────────────────────────
+
+/**
+ * Compute the 3D area of a triangle.
+ */
+function triangleArea3D(v1, v2, v3) {
+  const ab = vecSub(v2, v1);
+  const ac = vecSub(v3, v1);
+  return vecLen(vecCross(ab, ac)) / 2;
+}
+
+/**
+ * Compute the reliable face normal from vertices (ignores stored normal).
+ */
+function faceNormal(v1, v2, v3) {
+  const ab = vecSub(v2, v1);
+  const ac = vecSub(v3, v1);
+  return vecNorm(vecCross(ab, ac));
+}
+
 // ─── Overhang detection ───────────────────────────────────────────────────────
 
 /**
- * Determine whether a triangle needs support.
+ * Determine whether a triangle is an overhang that needs support.
  *
- * A triangle is an overhang when:
- *  - Its downward-facing normal makes an angle with -Z that is greater
- *    than (90° − overhangAngle). Equivalently: dot(normal, -Z) > cos(overhangAngle)
- *  - AND it is not resting on the build plate (minZ > buildPlateZ + epsilon)
+ * Conditions (ALL must be true):
+ *  1. Face normal has a significant downward component:
+ *       dot(n, -Z) > cos(overhangAngleDeg)
+ *     i.e. the face "looks down" more steeply than the threshold.
+ *  2. The triangle is not ON the build plate
+ *     (its lowest vertex is above buildPlateZ + epsilon).
+ *  3. There is no model surface within `supportGap` mm directly below the
+ *     triangle's centroid (ray-cast check) — meaning it truly "hangs in air".
  *
- * Standard FDM threshold: 45° from vertical  →  cos(45°) ≈ 0.707
+ * @param {object}   tri              - { normal, v1, v2, v3 }
+ * @param {number}   overhangAngleDeg - typically 45°; lower = more supports
+ * @param {number}   buildPlateZ      - Z of the build plate
+ * @param {Array}    triBuckets       - pre-bucketed triangles for ray cast
+ * @param {number}   [supportGap=0.3] - mm below centroid to look for surface
+ * @returns {boolean}
  */
-function isOverhang(normal, v1, v2, v3, overhangAngleDeg, buildPlateZ) {
-  // Compute the actual face normal from vertices (more reliable than stored normal)
-  const ab = vecSub(v2, v1);
-  const ac = vecSub(v3, v1);
-  const rawNormal = vecCross(ab, ac);
+function isOverhang(
+  tri,
+  overhangAngleDeg,
+  buildPlateZ,
+  triBuckets,
+  supportGap = 0.3,
+) {
+  const { v1, v2, v3 } = tri;
 
-  if (vecLen(rawNormal) < 1e-10) return false; // degenerate triangle
-
-  const faceNormal = vecNorm(rawNormal);
+  const n = faceNormal(v1, v2, v3);
+  if (vecLen(n) < 1e-10) return false; // degenerate triangle
 
   const minZ = Math.min(v1.z, v2.z, v3.z);
 
-  // If the triangle sits on the build plate, no support needed
-  if (minZ <= buildPlateZ + 0.01) return false;
+  // Condition 2: not on build plate
+  if (minZ <= buildPlateZ + 0.05) return false;
 
-  // downward component: negative Z direction
-  const downwardDot = -faceNormal.z; // dot(faceNormal, {0,0,-1})
-
-  // The face is "looking down" if downwardDot > 0
-  // It needs support when the angle from vertical exceeds threshold
+  // Condition 1: face looks downward beyond threshold
+  // downwardDot = dot(n, {0,0,-1}) = -n.z
+  const downwardDot = -n.z;
   const threshold = Math.cos((overhangAngleDeg * Math.PI) / 180);
+  if (downwardDot <= threshold) return false;
 
-  return downwardDot > threshold;
+  // Condition 3: nothing directly below (ray cast from centroid downward)
+  const cx = (v1.x + v2.x + v3.x) / 3;
+  const cy = (v1.y + v2.y + v3.y) / 3;
+  const cz = minZ - 0.001; // just below the triangle
+
+  const hasModelBelow = rayHitsModelBelow(cx, cy, cz, supportGap, triBuckets);
+  return !hasModelBelow;
 }
 
-// ─── Support column generation ────────────────────────────────────────────────
+/**
+ * Cast a vertical ray downward from (x, y, z) and check if any model triangle
+ * exists within `maxDist` mm below.
+ *
+ * Uses a fast 2D point-in-triangle test on each candidate triangle.
+ * Candidate triangles are those whose Z range overlaps [z - maxDist, z].
+ *
+ * @returns {boolean} true if a surface was found below
+ */
+function rayHitsModelBelow(x, y, z, maxDist, triBuckets) {
+  const zMin = z - maxDist;
+  const zMax = z;
+
+  for (const { tri, zMin: tMin, zMax: tMax } of triBuckets) {
+    // Quick Z range cull
+    if (tMax > z + 0.001) continue; // triangle is above the point
+    if (tMin < zMin) continue; // triangle is too far below
+
+    // 2D point-in-triangle test (project XY)
+    if (pointInTriangle2D(x, y, tri.v1, tri.v2, tri.v3)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
- * For each overhang triangle, generate a vertical support column from the
- * lowest point of the triangle down to the build plate (z = 0).
- *
- * Returns an array of support "pillar" objects:
- *   { baseX, baseY, topZ, bottomZ, radius }
+ * 2D point-in-triangle test using barycentric coordinates.
  */
-function generateSupportPillars(overhangTriangles, options = {}) {
-  const supportRadius = options.supportRadius || 0.4; // mm  (nozzle width)
-  const buildPlateZ = options.buildPlateZ || 0;
+function pointInTriangle2D(px, py, v1, v2, v3) {
+  const d1 = sign2D(px, py, v1.x, v1.y, v2.x, v2.y);
+  const d2 = sign2D(px, py, v2.x, v2.y, v3.x, v3.y);
+  const d3 = sign2D(px, py, v3.x, v3.y, v1.x, v1.y);
+  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(hasNeg && hasPos);
+}
+
+function sign2D(px, py, x1, y1, x2, y2) {
+  return (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2);
+}
+
+// ─── Ray cast: find Z of model surface below a point ─────────────────────────
+
+/**
+ * Find the highest Z of any model surface below point (x, y, fromZ).
+ * Returns buildPlateZ if nothing found (support goes all the way to plate).
+ */
+function findSurfaceBelow(x, y, fromZ, triBuckets, buildPlateZ) {
+  let bestZ = buildPlateZ;
+
+  for (const { tri, zMin: tMin, zMax: tMax } of triBuckets) {
+    // Only look at triangles strictly below fromZ
+    if (tMax >= fromZ - 0.001) continue;
+
+    if (!pointInTriangle2D(x, y, tri.v1, tri.v2, tri.v3)) continue;
+
+    // Interpolate Z on this triangle at (x, y)
+    const z = interpolateZOnTriangle(x, y, tri.v1, tri.v2, tri.v3);
+    if (z !== null && z > bestZ && z < fromZ - 0.001) {
+      bestZ = z;
+    }
+  }
+
+  return bestZ;
+}
+
+/**
+ * Barycentric interpolation of Z on a triangle at (px, py).
+ * Returns null if the point is outside.
+ */
+function interpolateZOnTriangle(px, py, v1, v2, v3) {
+  const denom = (v2.y - v3.y) * (v1.x - v3.x) + (v3.x - v2.x) * (v1.y - v3.y);
+  if (Math.abs(denom) < 1e-10) return null;
+
+  const w1 =
+    ((v2.y - v3.y) * (px - v3.x) + (v3.x - v2.x) * (py - v3.y)) / denom;
+  const w2 =
+    ((v3.y - v1.y) * (px - v3.x) + (v1.x - v3.x) * (py - v3.y)) / denom;
+  const w3 = 1 - w1 - w2;
+
+  if (w1 < -1e-6 || w2 < -1e-6 || w3 < -1e-6) return null;
+
+  return w1 * v1.z + w2 * v2.z + w3 * v3.z;
+}
+
+// ─── Support point sampling ───────────────────────────────────────────────────
+
+/**
+ * Sample support attachment points from an overhang triangle.
+ *
+ * Strategy:
+ *  - Always include the centroid.
+ *  - For large triangles (area > spacing²) also sample a regular grid of
+ *    barycentric points so that large overhangs get full coverage.
+ *
+ * @param {object} tri     - { v1, v2, v3 }
+ * @param {number} spacing - target distance between sample points (mm)
+ * @returns {Array<{x,y,z}>} 3D points on the surface of the triangle
+ */
+function sampleTrianglePoints(tri, spacing) {
+  const { v1, v2, v3 } = tri;
+  const area = triangleArea3D(v1, v2, v3);
+  const points = [];
+
+  // Always add centroid
+  points.push({
+    x: (v1.x + v2.x + v3.x) / 3,
+    y: (v1.y + v2.y + v3.y) / 3,
+    z: (v1.z + v2.z + v3.z) / 3,
+  });
+
+  // For larger triangles: grid-sample in barycentric coordinates
+  // Number of subdivisions proportional to sqrt(area) / spacing
+  const subdivisions = Math.max(1, Math.floor(Math.sqrt(area) / spacing));
+
+  if (subdivisions > 1) {
+    for (let i = 1; i <= subdivisions - 1; i++) {
+      for (let j = 1; j <= subdivisions - i; j++) {
+        const u = i / subdivisions;
+        const v = j / subdivisions;
+        const w = 1 - u - v;
+        if (w < 0) continue;
+        points.push({
+          x: u * v1.x + v * v2.x + w * v3.x,
+          y: u * v1.y + v * v2.y + w * v3.y,
+          z: u * v1.z + v * v2.z + w * v3.z,
+        });
+      }
+    }
+  }
+
+  return points;
+}
+
+// ─── Merge nearby support points ─────────────────────────────────────────────
+
+/**
+ * Remove duplicate support attachment points that are closer than mergeRadius.
+ * Uses a greedy sweep — O(n²) but n is typically small (< 10 000).
+ */
+function mergeSupportPoints(points, mergeRadius) {
+  const result = [];
+  for (const p of points) {
+    const isDuplicate = result.some(
+      (r) => Math.hypot(r.x - p.x, r.y - p.y) < mergeRadius,
+    );
+    if (!isDuplicate) result.push(p);
+  }
+  return result;
+}
+
+// ─── Support pillar generation ────────────────────────────────────────────────
+
+/**
+ * Build a list of support pillar descriptors from sampled overhang points.
+ *
+ * Each pillar:
+ *   { baseX, baseY, topZ, bottomZ, radius }
+ *
+ *  - topZ    = attachment point Z minus airGap  (leaves space to detach)
+ *  - bottomZ = highest model surface below OR buildPlateZ
+ *
+ * @param {Array}  overhangPoints  - from sampleTrianglePoints, merged
+ * @param {object} options
+ * @param {number} options.supportRadius  - pillar radius mm
+ * @param {number} options.airGap         - gap between support tip and model (mm)
+ * @param {number} options.buildPlateZ    - Z of the build plate
+ * @param {Array}  options.triBuckets     - for surface-below ray cast
+ * @returns {Array} pillars
+ */
+function buildSupportPillars(overhangPoints, options) {
+  const {
+    supportRadius = 0.4,
+    airGap = 0.2,
+    buildPlateZ = 0,
+    triBuckets = [],
+  } = options;
 
   const pillars = [];
 
-  for (const { v1, v2, v3 } of overhangTriangles) {
-    // Place a pillar at the centroid of the overhang triangle
-    const cx = (v1.x + v2.x + v3.x) / 3;
-    const cy = (v1.y + v2.y + v3.y) / 3;
-    const topZ = Math.min(v1.z, v2.z, v3.z);
-    const bottomZ = buildPlateZ;
+  for (const pt of overhangPoints) {
+    const topZ = pt.z - airGap;
+    const bottomZ = findSurfaceBelow(pt.x, pt.y, pt.z, triBuckets, buildPlateZ);
 
-    if (topZ <= bottomZ) continue;
-
-    // Check if an existing nearby pillar already covers this spot
-    const nearby = pillars.find(
-      (p) => Math.hypot(p.baseX - cx, p.baseY - cy) < supportRadius * 3,
-    );
-    if (nearby) {
-      // Extend existing pillar if needed
-      if (topZ > nearby.topZ) nearby.topZ = topZ;
-      continue;
-    }
+    if (topZ <= bottomZ + 0.05) continue; // too short to be useful
 
     pillars.push({
-      baseX: cx,
-      baseY: cy,
+      baseX: pt.x,
+      baseY: pt.y,
       topZ,
       bottomZ,
       radius: supportRadius,
@@ -307,16 +501,277 @@ function generateSupportPillars(overhangTriangles, options = {}) {
   return pillars;
 }
 
+// ─── Grid support generation ──────────────────────────────────────────────────
+
 /**
- * Convert a support pillar into a set of STL triangles (a triangulated cylinder).
- * Uses an octagonal prism for efficiency.
+ * "Grid" support type:
+ *   Places pillars on a regular XY grid under the bounding box of each
+ *   overhang triangle, skipping grid cells that are outside any overhang region.
+ *
+ * This gives even, predictable coverage for flat horizontal overhangs
+ * (e.g. bridging gaps, flat ceilings).
+ *
+ * @param {Array}  overhangTriangles
+ * @param {object} options
+ * @returns {Array} pillars
+ */
+function buildGridSupports(overhangTriangles, options) {
+  const {
+    gridSpacing = 2.0, // mm between grid lines
+    supportRadius = 0.4,
+    airGap = 0.2,
+    buildPlateZ = 0,
+    triBuckets = [],
+  } = options;
+
+  // Collect all grid candidate points from all overhang triangles
+  const rawPoints = [];
+
+  for (const tri of overhangTriangles) {
+    const { v1, v2, v3 } = tri;
+
+    // Bounding box of this triangle in XY
+    const xMin = Math.min(v1.x, v2.x, v3.x);
+    const xMax = Math.max(v1.x, v2.x, v3.x);
+    const yMin = Math.min(v1.y, v2.y, v3.y);
+    const yMax = Math.max(v1.y, v2.y, v3.y);
+    const triMinZ = Math.min(v1.z, v2.z, v3.z);
+
+    // Snap to grid
+    const xStart = Math.ceil(xMin / gridSpacing) * gridSpacing;
+    const yStart = Math.ceil(yMin / gridSpacing) * gridSpacing;
+
+    for (let gx = xStart; gx <= xMax + 1e-6; gx += gridSpacing) {
+      for (let gy = yStart; gy <= yMax + 1e-6; gy += gridSpacing) {
+        // Only if the grid point projects onto this triangle
+        if (pointInTriangle2D(gx, gy, v1, v2, v3)) {
+          const gz = interpolateZOnTriangle(gx, gy, v1, v2, v3);
+          if (gz !== null) {
+            rawPoints.push({ x: gx, y: gy, z: gz });
+          }
+        }
+      }
+    }
+  }
+
+  const merged = mergeSupportPoints(rawPoints, supportRadius * 2);
+  return buildSupportPillars(merged, {
+    supportRadius,
+    airGap,
+    buildPlateZ,
+    triBuckets,
+  });
+}
+
+// ─── Tree support generation ──────────────────────────────────────────────────
+
+/**
+ * "Tree" support type:
+ *
+ * Phase 1 (tips): sample overhang points densely (like linear supports).
+ * Phase 2 (trunk): cluster nearby tips and combine them into a shared trunk
+ *   column that merges below a "branch height".
+ *
+ * Result:
+ *   - Tips are thin (tipRadius) and connect directly to the model with airGap.
+ *   - Below the branch height, thin pillars merge into a single thicker trunk.
+ *   - Reduces contact area with model and uses less material than grid.
+ *
+ * Great for organic/curved models with many scattered overhangs.
+ */
+function buildTreeSupports(overhangTriangles, options) {
+  const {
+    supportRadius = 0.4,
+    trunkRadius = 1.2, // radius of merged trunk columns
+    airGap = 0.2,
+    buildPlateZ = 0,
+    triBuckets = [],
+    spacing = 1.5, // sample spacing mm
+    branchHeightFrac = 0.4, // how far up from bottom to merge (fraction of pillar height)
+    clusterRadius = 4.0, // tips within this XY distance share a trunk
+  } = options;
+
+  // ── Phase 1: collect tip points ──────────────────────────────────────────────
+  const rawPoints = [];
+  for (const tri of overhangTriangles) {
+    const pts = sampleTrianglePoints(tri, spacing);
+    for (const p of pts) rawPoints.push(p);
+  }
+  const tipPoints = mergeSupportPoints(rawPoints, supportRadius * 1.5);
+
+  if (tipPoints.length === 0) return { tipPillars: [], trunkPillars: [] };
+
+  // ── Phase 2: cluster tips into trunks ────────────────────────────────────────
+  const assigned = new Array(tipPoints.length).fill(-1);
+  const clusters = [];
+
+  for (let i = 0; i < tipPoints.length; i++) {
+    if (assigned[i] !== -1) continue;
+
+    const cluster = [i];
+    assigned[i] = clusters.length;
+
+    for (let j = i + 1; j < tipPoints.length; j++) {
+      if (assigned[j] !== -1) continue;
+      const dist = Math.hypot(
+        tipPoints[i].x - tipPoints[j].x,
+        tipPoints[i].y - tipPoints[j].y,
+      );
+      if (dist < clusterRadius) {
+        assigned[j] = clusters.length;
+        cluster.push(j);
+      }
+    }
+    clusters.push(cluster);
+  }
+
+  const tipPillars = [];
+  const trunkPillars = [];
+
+  for (const cluster of clusters) {
+    // Compute cluster centroid (XY)
+    let sumX = 0,
+      sumY = 0;
+    for (const idx of cluster) {
+      sumX += tipPoints[idx].x;
+      sumY += tipPoints[idx].y;
+    }
+    const centX = sumX / cluster.length;
+    const centY = sumY / cluster.length;
+
+    // Lowest tipZ in cluster → branch point Z
+    let lowestTipZ = Infinity;
+    for (const idx of cluster) {
+      const topZ = tipPoints[idx].z - airGap;
+      if (topZ < lowestTipZ) lowestTipZ = topZ;
+    }
+
+    // Bottom of trunk
+    const trunkBottomZ = findSurfaceBelow(
+      centX,
+      centY,
+      lowestTipZ,
+      triBuckets,
+      buildPlateZ,
+    );
+    const branchZ =
+      trunkBottomZ + (lowestTipZ - trunkBottomZ) * branchHeightFrac;
+
+    // ── Trunk: one thick column from plate/surface to branchZ ───────────────────
+    if (lowestTipZ > trunkBottomZ + 0.1) {
+      trunkPillars.push({
+        baseX: centX,
+        baseY: centY,
+        topZ: Math.min(lowestTipZ, branchZ + 0.5),
+        bottomZ: trunkBottomZ,
+        radius: trunkRadius,
+      });
+    }
+
+    // ── Tips: thin columns from branchZ up to each attachment point ─────────────
+    for (const idx of cluster) {
+      const pt = tipPoints[idx];
+      const topZ = pt.z - airGap;
+      const tipBottom = Math.max(branchZ, trunkBottomZ);
+
+      if (topZ > tipBottom + 0.05) {
+        tipPillars.push({
+          baseX: pt.x,
+          baseY: pt.y,
+          topZ,
+          bottomZ: tipBottom,
+          radius: supportRadius,
+        });
+      }
+    }
+  }
+
+  // Flatten for uniform output
+  return [...tipPillars, ...trunkPillars];
+}
+
+// ─── Generate all support pillars (entry point) ───────────────────────────────
+
+/**
+ * Unified entry point for support pillar generation.
+ * Dispatches to the correct algorithm based on `supportType`.
+ *
+ * @param {Array}  overhangTriangles
+ * @param {object} options
+ * @param {string} [options.supportType="linear"]  "linear" | "grid" | "tree"
+ * @param {number} [options.supportRadius=0.4]     pillar tip radius mm
+ * @param {number} [options.airGap=0.2]            gap between support and model mm
+ * @param {number} [options.buildPlateZ=0]         build plate Z
+ * @param {Array}  [options.triBuckets=[]]         pre-bucketed mesh triangles
+ * @param {number} [options.spacing=1.5]           sample / grid spacing mm
+ * @returns {Array} pillars { baseX, baseY, topZ, bottomZ, radius }
+ */
+function generateSupportPillars(overhangTriangles, options = {}) {
+  const supportType = (options.supportType || "linear").toLowerCase();
+
+  if (overhangTriangles.length === 0) return [];
+
+  switch (supportType) {
+    case "grid":
+      return buildGridSupports(overhangTriangles, {
+        gridSpacing: options.spacing || 2.0,
+        supportRadius: options.supportRadius || 0.4,
+        airGap: options.airGap || 0.2,
+        buildPlateZ: options.buildPlateZ || 0,
+        triBuckets: options.triBuckets || [],
+      });
+
+    case "tree":
+      return buildTreeSupports(overhangTriangles, {
+        supportRadius: options.supportRadius || 0.4,
+        trunkRadius:
+          options.trunkRadius ||
+          Math.max(1.2, (options.supportRadius || 0.4) * 3),
+        airGap: options.airGap || 0.2,
+        buildPlateZ: options.buildPlateZ || 0,
+        triBuckets: options.triBuckets || [],
+        spacing: options.spacing || 1.5,
+        branchHeightFrac: options.branchHeightFrac || 0.4,
+        clusterRadius: options.clusterRadius || 4.0,
+      });
+
+    case "linear":
+    default: {
+      // Sample one point per overhang triangle (+ extra for large faces)
+      const rawPoints = [];
+      for (const tri of overhangTriangles) {
+        const pts = sampleTrianglePoints(tri, options.spacing || 1.5);
+        for (const p of pts) rawPoints.push(p);
+      }
+      const merged = mergeSupportPoints(
+        rawPoints,
+        (options.supportRadius || 0.4) * 2,
+      );
+      return buildSupportPillars(merged, {
+        supportRadius: options.supportRadius || 0.4,
+        airGap: options.airGap || 0.2,
+        buildPlateZ: options.buildPlateZ || 0,
+        triBuckets: options.triBuckets || [],
+      });
+    }
+  }
+}
+
+// ─── Pillar → triangles (STL geometry) ───────────────────────────────────────
+
+/**
+ * Convert a support pillar into STL triangles (triangulated cylinder / prism).
+ * Uses an octagonal cross-section for a good balance of fidelity and triangle count.
+ *
+ * @param {object} pillar  - { baseX, baseY, topZ, bottomZ, radius }
+ * @param {number} [sides=8]
+ * @returns {Array} triangle objects { normal, v1, v2, v3 }
  */
 function pillarToTriangles(pillar, sides = 8) {
   const { baseX, baseY, topZ, bottomZ, radius } = pillar;
   const tris = [];
   const angleStep = (2 * Math.PI) / sides;
 
-  // Build top and bottom rings
   const topRing = [];
   const bottomRing = [];
   for (let i = 0; i < sides; i++) {
@@ -333,7 +788,7 @@ function pillarToTriangles(pillar, sides = 8) {
   for (let i = 0; i < sides; i++) {
     const j = (i + 1) % sides;
 
-    // Side quad → 2 triangles
+    // Side quad → 2 triangles (outward normals computed from vertices)
     tris.push({
       normal: { x: 0, y: 0, z: 0 },
       v1: topRing[i],
@@ -347,7 +802,7 @@ function pillarToTriangles(pillar, sides = 8) {
       v3: topRing[j],
     });
 
-    // Top cap
+    // Top cap (normal +Z)
     tris.push({
       normal: { x: 0, y: 0, z: 1 },
       v1: topCenter,
@@ -355,7 +810,7 @@ function pillarToTriangles(pillar, sides = 8) {
       v3: topRing[i],
     });
 
-    // Bottom cap
+    // Bottom cap (normal -Z)
     tris.push({
       normal: { x: 0, y: 0, z: -1 },
       v1: bottomCenter,
@@ -367,20 +822,20 @@ function pillarToTriangles(pillar, sides = 8) {
   return tris;
 }
 
-// ─── Per-layer statistics ─────────────────────────────────────────────────────
+// ─── Per-layer filament volume estimate ───────────────────────────────────────
 
 /**
  * Estimate filament used for a single layer from its contour area.
  *
- * Simple model:
- *   - Shell perimeter  → nozzle width × layer height × perimeter length
- *   - Infill area      → infill density × layer area × layer height
+ * Model:
+ *   - Shell perimeter  → nozzle width × layer height × perimeter length × shellCount
+ *   - Infill area      → (area − shell offset area) × infill density × layer height
  *
  * Returns mm³ of filament for this layer.
  */
 function layerFilamentVolume(contours, layerHeight, options = {}) {
-  const nozzleDiameter = options.nozzleDiameter || 0.4; // mm
-  const infillDensity = options.infillDensity || 0.2; // 0–1
+  const nozzleDiameter = options.nozzleDiameter || 0.4;
+  const infillDensity = options.infillDensity || 0.2;
   const shellCount = options.shellCount || 3;
 
   let totalVolume = 0;
@@ -388,7 +843,6 @@ function layerFilamentVolume(contours, layerHeight, options = {}) {
   for (const contour of contours) {
     const area = polygonArea2D(contour);
 
-    // Perimeter
     let perimeter = 0;
     for (let i = 0; i < contour.length; i++) {
       const a = contour[i];
@@ -396,10 +850,8 @@ function layerFilamentVolume(contours, layerHeight, options = {}) {
       perimeter += Math.hypot(b.x - a.x, b.y - a.y);
     }
 
-    // Shell volume
     const shellVolume = perimeter * nozzleDiameter * layerHeight * shellCount;
 
-    // Infill volume (area minus shell area, approximated)
     const innerArea = Math.max(
       0,
       area - perimeter * nozzleDiameter * shellCount,
@@ -419,13 +871,16 @@ function layerFilamentVolume(contours, layerHeight, options = {}) {
  *
  * @param {Array}  triangles  - output of stlParser.parseSTL()
  * @param {object} options
- * @param {number} [options.layerHeight=0.2]        - layer height in mm
- * @param {number} [options.overhangAngle=45]        - overhang threshold in degrees
- * @param {number} [options.nozzleDiameter=0.4]      - nozzle diameter in mm
- * @param {number} [options.infillDensity=0.20]      - infill ratio 0–1
- * @param {number} [options.shellCount=3]            - number of perimeter shells
- * @param {number} [options.supportRadius=0.4]       - support pillar radius in mm
- * @param {number} [options.buildPlateZ]             - Z of build plate (default: model minZ)
+ * @param {number} [options.layerHeight=0.2]         layer height in mm
+ * @param {number} [options.overhangAngle=45]         overhang threshold in degrees
+ * @param {number} [options.nozzleDiameter=0.4]       nozzle diameter in mm
+ * @param {number} [options.infillDensity=0.20]       infill ratio 0–1
+ * @param {number} [options.shellCount=3]             number of perimeter shells
+ * @param {number} [options.supportRadius=0.4]        support pillar tip radius mm
+ * @param {number} [options.airGap=0.2]               gap between support and model mm
+ * @param {string} [options.supportType="linear"]     "linear" | "grid" | "tree"
+ * @param {number} [options.supportSpacing=1.5]       sample/grid spacing mm
+ * @param {number} [options.buildPlateZ]              Z of build plate (default: model minZ)
  * @returns {SlicerResult}
  */
 function slice(triangles, options = {}) {
@@ -438,7 +893,10 @@ function slice(triangles, options = {}) {
   const nozzleDiameter = options.nozzleDiameter || 0.4;
   const infillDensity = options.infillDensity || 0.2;
   const shellCount = options.shellCount || 3;
-  const supportRadius = options.supportRadius || 0.4;
+  const supportRadius = options.supportRadius || options.nozzleDiameter || 0.4;
+  const airGap = options.airGap !== undefined ? options.airGap : 0.2;
+  const supportType = options.supportType || "linear";
+  const supportSpacing = options.supportSpacing || 1.5;
 
   // ── Find Z extents ───────────────────────────────────────────────────────────
   let minZ = Infinity;
@@ -462,20 +920,33 @@ function slice(triangles, options = {}) {
 
   const layerCount = Math.ceil(modelHeight / layerHeight);
 
+  // ── Pre-bucket triangles by Z range ─────────────────────────────────────────
+  // Used for ray casting (find surface below) and overhang detection.
+  const triBuckets = triangles.map((tri) => {
+    const zVals = [tri.v1.z, tri.v2.z, tri.v3.z];
+    return { tri, zMin: Math.min(...zVals), zMax: Math.max(...zVals) };
+  });
+
   // ── Identify overhang triangles ──────────────────────────────────────────────
+  // Use a small supportGap for the "is there material below?" check —
+  // we look within 2 layer heights to decide if support is truly needed.
+  const supportGap = layerHeight * 2;
+
   const overhangTriangles = [];
   for (const tri of triangles) {
-    if (
-      isOverhang(tri.normal, tri.v1, tri.v2, tri.v3, overhangAngle, buildPlateZ)
-    ) {
+    if (isOverhang(tri, overhangAngle, buildPlateZ, triBuckets, supportGap)) {
       overhangTriangles.push(tri);
     }
   }
 
   // ── Generate support pillars ─────────────────────────────────────────────────
   const supportPillars = generateSupportPillars(overhangTriangles, {
+    supportType,
     supportRadius,
+    airGap,
     buildPlateZ,
+    triBuckets,
+    spacing: supportSpacing,
   });
 
   // Convert pillars to triangles for STL export
@@ -487,28 +958,20 @@ function slice(triangles, options = {}) {
   // ── Slice each layer ─────────────────────────────────────────────────────────
   const layers = [];
 
-  // Pre-bucket triangles by Z range for performance
-  // Each triangle spans [triMinZ, triMaxZ]
-  const triBuckets = triangles.map((tri) => {
-    const zVals = [tri.v1.z, tri.v2.z, tri.v3.z];
-    return { tri, zMin: Math.min(...zVals), zMax: Math.max(...zVals) };
-  });
-
   let totalFilamentMm3 = 0;
   let totalSupportMm3 = 0;
   let layerWithMaxArea = null;
   let maxLayerArea = 0;
 
   for (let i = 0; i < layerCount; i++) {
-    const zPlane = minZ + (i + 0.5) * layerHeight; // slice through the middle of each layer
+    const zPlane = minZ + (i + 0.5) * layerHeight;
 
     // Collect intersecting segments
     const segments = [];
-    for (const { tri, zMin, zMax } of triBuckets) {
-      if (zMin > zPlane || zMax < zPlane) continue;
+    for (const { tri, zMin: tMin, zMax: tMax } of triBuckets) {
+      if (tMin > zPlane || tMax < zPlane) continue;
       const seg = intersectTrianglePlane(tri.v1, tri.v2, tri.v3, zPlane);
       if (seg) {
-        // Project to 2D (drop Z)
         segments.push({
           a: { x: seg.a.x, y: seg.a.y },
           b: { x: seg.b.x, y: seg.b.y },
@@ -516,21 +979,16 @@ function slice(triangles, options = {}) {
       }
     }
 
-    // Chain into contours
     const contours = chainSegments(segments);
-
-    // Compute layer area (sum of contour areas)
     const layerArea = contours.reduce((sum, c) => sum + polygonArea2D(c), 0);
 
-    // Filament estimate for this layer
     const filamentVol = layerFilamentVolume(contours, layerHeight, {
       nozzleDiameter,
       infillDensity,
       shellCount,
     });
 
-    // Support volume for this layer slice
-    // Sum pillar cross-sections that pass through this Z
+    // Support volume for this layer slice (sum of pillar cross-sections)
     let supportVolLayer = 0;
     for (const pillar of supportPillars) {
       if (pillar.bottomZ <= zPlane && pillar.topZ >= zPlane) {
@@ -554,7 +1012,7 @@ function slice(triangles, options = {}) {
       zPlane: parseFloat(zPlane.toFixed(4)),
       segmentCount: segments.length,
       contourCount: contours.length,
-      contours, // array of polygon point arrays
+      contours,
       areaMm2: parseFloat(layerArea.toFixed(4)),
       filamentMm3: parseFloat(filamentVol.toFixed(4)),
       hasSupportAt: supportPillars.some(
@@ -564,7 +1022,6 @@ function slice(triangles, options = {}) {
   }
 
   return {
-    // Slicer settings used
     settings: {
       layerHeight,
       overhangAngle,
@@ -572,32 +1029,29 @@ function slice(triangles, options = {}) {
       infillDensity,
       shellCount,
       supportRadius,
+      airGap,
+      supportType,
       buildPlateZ,
     },
 
-    // Model Z range
     modelMinZ: parseFloat(minZ.toFixed(4)),
     modelMaxZ: parseFloat(maxZ.toFixed(4)),
     modelHeight: parseFloat(modelHeight.toFixed(4)),
 
-    // Layer data
     layerCount,
     layers,
 
-    // Support data
     overhangTriangleCount: overhangTriangles.length,
     supportPillarCount: supportPillars.length,
     supportPillars,
     supportTriangles,
 
-    // Filament totals (mm³)
     totalFilamentMm3: parseFloat(totalFilamentMm3.toFixed(4)),
     totalSupportMm3: parseFloat(totalSupportMm3.toFixed(4)),
     totalMaterialMm3: parseFloat(
       (totalFilamentMm3 + totalSupportMm3).toFixed(4),
     ),
 
-    // Layer stats
     layerWithMaxArea,
     maxLayerAreaMm2: parseFloat(maxLayerArea.toFixed(4)),
   };
@@ -607,7 +1061,6 @@ function slice(triangles, options = {}) {
 
 /**
  * Combine model triangles with support triangles into one mesh.
- * Used when writing the "model + supports" STL file.
  */
 function mergeWithSupports(modelTriangles, slicerResult) {
   return [...modelTriangles, ...slicerResult.supportTriangles];
@@ -616,11 +1069,13 @@ function mergeWithSupports(modelTriangles, slicerResult) {
 module.exports = {
   slice,
   mergeWithSupports,
+
+  // Exposed for testing
   isOverhang,
-  intersectTrianglePlane,
-  chainSegments,
-  pillarToTriangles,
   generateSupportPillars,
-  polygonArea2D,
-  layerFilamentVolume,
+  pillarToTriangles,
+  sampleTrianglePoints,
+  findSurfaceBelow,
+  buildGridSupports,
+  buildTreeSupports,
 };

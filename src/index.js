@@ -57,6 +57,23 @@ program
     parseFloat,
     45,
   )
+  .option(
+    "--support-type <type>",
+    "Тип поддержек: linear (столбики) | grid (сетка) | tree (дерево)",
+    "linear",
+  )
+  .option(
+    "--air-gap <mm>",
+    "Воздушный зазор между поддержкой и моделью (мм)",
+    parseFloat,
+    0.2,
+  )
+  .option(
+    "--support-spacing <mm>",
+    "Шаг сетки / точек поддержки (мм). Меньше → плотнее",
+    parseFloat,
+    1.5,
+  )
   .option("-k, --price-per-kg <rub>", "Цена материала за кг (₽)", parseFloat)
   .option(
     "-e, --electricity <rub/kwh>",
@@ -257,12 +274,22 @@ async function runAnalysis(filePath, opts) {
         infillDensity: opts.infill / 100,
         shellCount: opts.shells,
         supportRadius: opts.nozzle,
+        supportType: opts.supportType || "linear",
+        airGap: opts.airGap !== undefined ? opts.airGap : 0.2,
+        supportSpacing: opts.supportSpacing || 1.5,
       });
+
+      const supportTypeLabel =
+        {
+          linear: "линейные",
+          grid: "сетка",
+          tree: "дерево",
+        }[opts.supportType || "linear"] || opts.supportType;
 
       const supportInfo =
         slicerResult.supportPillarCount > 0
           ? chalk.yellow(
-              `${slicerResult.supportPillarCount} столбиков поддержки`,
+              `${slicerResult.supportPillarCount} столбиков поддержки [${supportTypeLabel}]`,
             )
           : chalk.green("поддержки не нужны");
 
@@ -423,6 +450,9 @@ function buildJsonReport({
       infillPercent: opts.infill,
       shellCount: opts.shells,
       overhangAngle: opts.overhangAngle,
+      supportType: opts.supportType || "linear",
+      airGap: opts.airGap !== undefined ? opts.airGap : 0.2,
+      supportSpacing: opts.supportSpacing || 1.5,
     },
   };
 

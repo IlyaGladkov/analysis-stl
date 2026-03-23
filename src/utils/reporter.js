@@ -171,10 +171,32 @@ function eulerLabel(chi, ok_) {
 
 // ─── Отчёт слайсера ───────────────────────────────────────────────────────────
 
+const SUPPORT_TYPE_LABELS = {
+  linear: "Linear — вертикальные столбики",
+  grid: "Grid   — прямоугольная сетка",
+  tree: "Tree   — древовидные ветви",
+};
+
+const SUPPORT_TYPE_HINTS = {
+  linear:
+    "Один столбик на каждую точку нависания. " +
+    "Экономно, хорошо для небольших и точечных нависаний.",
+  grid:
+    "Регулярная сетка под всей нависающей областью. " +
+    "Надёжно для широких горизонтальных поверхностей и мостов.",
+  tree:
+    "Тонкие ветви сходятся в толстый ствол. " +
+    "Минимальный контакт с моделью, легко снимается, " +
+    "меньше расход материала для сложной органической геометрии.",
+};
+
 function printSlicerReport(result) {
   sectionHeader("СЛАЙСИНГ И АНАЛИЗ ПОДДЕРЖЕК", "🔪");
 
   const s = result.settings;
+
+  const supportTypeKey = (s.supportType || "linear").toLowerCase();
+  const supportTypeLabel = SUPPORT_TYPE_LABELS[supportTypeKey] || s.supportType;
 
   console.log(bold(info("  Параметры нарезки")));
   kvTable([
@@ -210,14 +232,28 @@ function printSlicerReport(result) {
   console.log(bold(info("  Поддерживающие структуры")));
   if (result.supportPillarCount === 0) {
     console.log("  " + ok("✔  Поддержки не требуются."));
+    kvTable([
+      ["Тип поддержек", dim(supportTypeLabel)],
+      ["Порог нависания", `${s.overhangAngle}°`],
+    ]);
   } else {
     kvTable([
+      ["Тип поддержек", bold(supportTypeLabel)],
+      [
+        "Воздушный зазор",
+        `${s.airGap !== undefined ? s.airGap : 0.2} мм  ` +
+          dim("(зазор между поддержкой и моделью)"),
+      ],
+      [
+        "Шаг точек/сетки",
+        `${s.supportSpacing !== undefined ? s.supportSpacing : 1.5} мм`,
+      ],
       [
         "Треугольников нависания",
         warn(result.overhangTriangleCount.toLocaleString("ru-RU")),
       ],
       [
-        "Столбиков поддержки",
+        "Столбиков / ветвей поддержки",
         warn(result.supportPillarCount.toLocaleString("ru-RU")),
       ],
       [
@@ -225,6 +261,11 @@ function printSlicerReport(result) {
         warn(result.supportTriangles.length.toLocaleString("ru-RU")),
       ],
     ]);
+
+    const hint = SUPPORT_TYPE_HINTS[supportTypeKey];
+    if (hint) {
+      console.log("  " + dim(`ℹ  ${hint}`));
+    }
   }
 
   console.log("");
