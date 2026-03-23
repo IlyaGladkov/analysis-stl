@@ -1,0 +1,98 @@
+# ─── Зависимости ──────────────────────────────────────────────────────────────
+node_modules/
+.npm/
+.yarn/
+.pnp.*
+yarn.lock
+
+# ─── Сгенерированные файлы анализа ────────────────────────────────────────────
+output/
+samples/
+
+# ─── Окружение ────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+
+# ─── Логи ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Кэш и временные файлы ────────────────────────────────────────────────────
+.cache/
+.temp/
+.tmp/
+tmp/
+temp/
+
+# ─── Покрытие тестами ─────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Редакторы и IDE ──────────────────────────────────────────────────────────
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# JetBrains (WebStorm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Neovim
+*.swp
+*.swo
+*~
+.vim/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ─── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon?
+
+# ─── Windows ──────────────────────────────────────────────────────────────────
+Thumbs.db
+Thumbs.db:encdata
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ─── Linux ────────────────────────────────────────────────────────────────────
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ─── Сборка и dist ────────────────────────────────────────────────────────────
+dist/
+build/
+out/
+
+# ─── Загруженные пользователем STL-файлы ──────────────────────────────────────
+uploads/
+*.stl
+
+# ─── Исключения: тестовые образцы в репозитории (раскомментировать при нужде) ─
+# !test/fixtures/*.stl
+# !samples/example.stl
