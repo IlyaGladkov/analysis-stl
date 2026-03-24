@@ -75,13 +75,15 @@ node src/index.js analyze path/to/model.stl \
   --infill 25 \
   --shells 3 \
   --overhang-angle 45 \
-  --price-per-kg 24 \
-  --electricity 0.12 \
-  --machine-rate 1.20 \
-  --operator-rate 15 \
+  --price-per-kg 2000 \
+  --electricity 6.5 \
+  --machine-rate 75 \
+  --operator-rate 500 \
   --profit-margin 20 \
   --output ./output
 ```
+
+> All prices are in **roubles (₽)**.
 
 ---
 
@@ -95,17 +97,17 @@ node src/index.js analyze <file> [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-m, --material <name>` | `PLA` | Material: `PLA`, `ABS`, `PETG`, `TPU`, `ASA`, `Nylon`, `Resin` |
-| `-p, --printer <name>` | `generic FDM` | Printer preset (see `list-printers`) |
+| `-m, --material <name>` | `PLA` | Material preset key (see `list-materials`) |
+| `-p, --printer <name>` | `Стандартный FDM` | Printer preset (see `list-printers`) |
 | `-l, --layer-height <mm>` | `0.2` | Layer height in mm |
 | `-n, --nozzle <mm>` | `0.4` | Nozzle diameter in mm |
 | `-i, --infill <pct>` | `20` | Infill percentage (0–100) |
 | `-s, --shells <n>` | `3` | Number of perimeter shell walls |
 | `-a, --overhang-angle <deg>` | `45` | Overhang support threshold in degrees |
-| `-k, --price-per-kg <usd>` | preset | Material price per kg (USD) |
-| `-e, --electricity <usd/kwh>` | `0.12` | Electricity price per kWh |
-| `-r, --machine-rate <usd/h>` | preset | Machine depreciation cost per hour |
-| `--operator-rate <usd/h>` | `0` | Operator hourly labor rate |
+| `-k, --price-per-kg <₽>` | preset | Material price per kg (₽) |
+| `-e, --electricity <₽/kwh>` | `6.5` | Electricity price per kWh (₽) |
+| `-r, --machine-rate <₽/h>` | preset | Machine depreciation cost per hour (₽) |
+| `--operator-rate <₽/h>` | `0` | Operator hourly labor rate (₽) |
 | `--profit-margin <pct>` | `0` | Profit markup percentage |
 | `--filament-diameter <mm>` | `1.75` | Filament spool diameter |
 | `--waste-factor <n>` | `1.05` | Waste multiplier (e.g. 1.05 = 5% waste) |
@@ -206,28 +208,187 @@ totalTime = Σ layerTimes + warmupOverhead (5 min)
 
 ## Material Presets
 
-| Material | Density (g/cm³) | Default Price/kg |
-|----------|-----------------|------------------|
-| PLA | 1.24 | $20.00 |
-| ABS | 1.04 | $22.00 |
-| PETG | 1.27 | $24.00 |
-| TPU | 1.21 | $35.00 |
-| ASA | 1.07 | $28.00 |
-| Nylon | 1.14 | $45.00 |
-| Resin | 1.10 | $50.00 |
+All prices are in **roubles (₽) per kg**.
+
+### PLA и вариации
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `PLA` | PLA (стандартный) | 1.24 | 1 800 |
+| `PLA+` | PLA+ (усиленный) | 1.24 | 2 200 |
+| `PLA Silk` | PLA Silk (шёлковый) | 1.24 | 2 500 |
+| `PLA Matte` | PLA Matte (матовый) | 1.24 | 2 300 |
+| `PLA Metal` | PLA Metal (металлизированный) | 1.60 | 3 500 |
+| `PLA Wood` | PLA Wood (с древесным наполнением) | 1.15 | 3 000 |
+| `PLA Marble` | PLA Marble (под мрамор) | 1.27 | 2 800 |
+| `PLA Glow` | PLA Glow (светящийся) | 1.24 | 2 600 |
+| `PLA-CF` | PLA Carbon Fiber (с углеволокном) | 1.30 | 4 500 |
+| `PLA HT` | PLA HT (термостойкий) | 1.24 | 3 200 |
+
+### ABS / ASA
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `ABS` | ABS (стандартный) | 1.04 | 1 600 |
+| `ABS+` | ABS+ (усиленный) | 1.04 | 2 000 |
+| `ABS-CF` | ABS Carbon Fiber (с углеволокном) | 1.10 | 4 800 |
+| `ASA` | ASA (УФ-стойкий) | 1.07 | 2 400 |
+| `ASA-CF` | ASA Carbon Fiber (с углеволокном) | 1.12 | 5 000 |
+
+### PETG
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `PETG` | PETG (стандартный) | 1.27 | 2 000 |
+| `PETG-CF` | PETG Carbon Fiber (с углеволокном) | 1.35 | 4 500 |
+| `PETG Silk` | PETG Silk (шёлковый) | 1.27 | 2 600 |
+| `PETG HF` | PETG High Flow (высокоскоростной) | 1.27 | 2 800 |
+
+### TPU / Гибкие
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `TPU` | TPU (гибкий, 95A) | 1.21 | 3 200 |
+| `TPU 85A` | TPU 85A (мягкий) | 1.20 | 3 500 |
+| `TPU 98A` | TPU 98A (жёсткий) | 1.22 | 3 100 |
+| `TPE` | TPE (эластомер) | 1.18 | 3 800 |
+| `TPU95HF` | TPU HF (высокоскоростной) | 1.21 | 3 600 |
+
+### Нейлон
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `Nylon` | Нейлон PA6 | 1.14 | 4 000 |
+| `Nylon PA12` | Нейлон PA12 | 1.01 | 4 500 |
+| `Nylon CF` | Нейлон Carbon Fiber (с углеволокном) | 1.20 | 7 500 |
+| `Nylon GF` | Нейлон Glass Fiber (со стекловолокном) | 1.35 | 6 000 |
+| `Nylon+` | Нейлон PA6+ (усиленный) | 1.14 | 5 000 |
+
+### Высокотемпературные
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `PC` | Поликарбонат (PC) | 1.20 | 5 000 |
+| `PC-CF` | PC Carbon Fiber (с углеволокном) | 1.27 | 8 000 |
+| `PC-ABS` | PC-ABS (сплав) | 1.10 | 4 000 |
+| `PEEK` | PEEK (высокоэффективный) | 1.32 | 35 000 |
+| `PEI` | PEI / Ultem (жаростойкий) | 1.27 | 25 000 |
+| `PEKK` | PEKK (авиационный) | 1.30 | 40 000 |
+| `PPS` | PPS (химически стойкий) | 1.35 | 28 000 |
+| `PSU` | PSU (полисульфон) | 1.24 | 22 000 |
+| `HIPS` | HIPS (растворимые поддержки) | 1.04 | 1 700 |
+
+### Специальные / Экзотические
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `PVOH` | PVA / PVOH (водорастворимые поддержки) | 1.23 | 12 000 |
+| `PP` | Полипропилен (PP) | 0.90 | 3 500 |
+| `PP-CF` | PP Carbon Fiber (с углеволокном) | 1.00 | 6 500 |
+| `PMMA` | PMMA / Акрил (прозрачный) | 1.19 | 4 500 |
+| `Co-Polyester` | Co-Polyester (Amphora) | 1.23 | 3 800 |
+| `PVB` | PVB (полируемый) | 1.19 | 5 000 |
+
+### Фотополимеры (SLA / MSLA / DLP)
+
+| Key | Label | Density (g/cm³) | Price (₽/kg) |
+|-----|-------|-----------------|--------------|
+| `Resin` | Фотополимер стандартный | 1.10 | 4 500 |
+| `Resin ABS-like` | Фотополимер ABS-подобный | 1.10 | 5 000 |
+| `Resin Tough` | Фотополимер Tough (ударопрочный) | 1.15 | 6 000 |
+| `Resin Flexible` | Фотополимер Flexible (гибкий) | 1.10 | 7 000 |
+| `Resin Castable` | Фотополимер Castable (для литья) | 1.05 | 12 000 |
+| `Resin Dental` | Фотополимер Dental (стоматологический) | 1.15 | 20 000 |
+| `Resin Water-Washable` | Фотополимер водосмываемый | 1.10 | 5 500 |
+| `Resin 8K` | Фотополимер 8K (высокодетализированный) | 1.10 | 5 000 |
 
 ---
 
 ## Printer Presets
 
-| Printer | Speed (mm/s) | Power (W) | Rate ($/h) |
-|---------|-------------|-----------|-----------|
-| Ender 3 | 50 | 120 | $0.50 |
-| Prusa MK4 | 80 | 150 | $1.20 |
-| Bambu Lab X1C | 150 | 350 | $2.00 |
-| Creality K1 Max | 120 | 300 | $1.50 |
-| Formlabs Form 3 | 20 | 85 | $5.00 |
-| generic FDM | 60 | 150 | $0.75 |
+All rates are in **roubles (₽) per hour**.
+
+### FDM — Creality
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| Ender 3 | 50 | 120 | 30 |
+| Ender 3 V3 SE | 80 | 150 | 40 |
+| Ender 3 S1 Pro | 60 | 200 | 45 |
+| Creality K1 | 200 | 350 | 85 |
+| Creality K1 Max | 120 | 300 | 90 |
+| Creality K2 Plus | 300 | 500 | 130 |
+| Neptune 4 Pro | 150 | 280 | 55 |
+| Neptune 4 Max | 150 | 350 | 65 |
+
+### FDM — Prusa
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| Prusa MINI+ | 60 | 90 | 50 |
+| Prusa MK3S+ | 60 | 120 | 60 |
+| Prusa MK4 | 80 | 150 | 75 |
+| Prusa XL | 80 | 200 | 100 |
+
+### FDM — Bambu Lab
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| Bambu Lab A1 Mini | 100 | 200 | 65 |
+| Bambu Lab A1 | 100 | 250 | 75 |
+| Bambu Lab P1P | 150 | 300 | 95 |
+| Bambu Lab P1S | 150 | 320 | 110 |
+| Bambu Lab X1C | 150 | 350 | 120 |
+| Bambu Lab X1E | 150 | 400 | 140 |
+
+### FDM — Voron
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| Voron 0.2 | 100 | 120 | 60 |
+| Voron Trident | 150 | 350 | 95 |
+| Voron 2.4 | 150 | 400 | 100 |
+
+### FDM — Прочие
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| Artillery Genius Pro | 80 | 180 | 45 |
+| Artillery Sidewinder X3 Pro | 150 | 350 | 70 |
+| AnkerMake M5C | 167 | 300 | 80 |
+| AnkerMake M7 | 167 | 350 | 95 |
+| FlashForge Adventurer 5M | 167 | 300 | 75 |
+| FlashForge Creator 3 Pro | 80 | 800 | 120 |
+| Qidi X-Max 3 | 200 | 350 | 90 |
+| Qidi Tech X-CF Pro | 100 | 400 | 110 |
+| RatRig V-Core 4 | 200 | 500 | 115 |
+| Стандартный FDM | 60 | 150 | 45 |
+
+### SLA / MSLA / DLP — Фотополимерные
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| SparkMaker Ultra | 20 | 60 | 70 |
+| Anycubic Photon Mono X2 | 25 | 80 | 85 |
+| Elegoo Mars 4 Ultra | 30 | 80 | 90 |
+| Anycubic Photon M7 Pro | 35 | 100 | 100 |
+| Phrozen Sonic Mega 8K S | 30 | 130 | 130 |
+| Elegoo Saturn 4 Ultra | 30 | 120 | 120 |
+| Formlabs Form 3 | 20 | 85 | 300 |
+| Formlabs Form 3L | 20 | 120 | 450 |
+| Formlabs Form 4 | 40 | 100 | 350 |
+| Стандартный MSLA | 25 | 90 | 90 |
+
+### Промышленные / Профессиональные
+
+| Printer | Speed (mm/s) | Power (W) | Rate (₽/h) |
+|---------|-------------|-----------|------------|
+| Ultimaker S5 | 60 | 300 | 320 |
+| Ultimaker S7 | 70 | 350 | 400 |
+| MakerBot Method X | 75 | 250 | 350 |
+| Markforged Mark Two | 40 | 200 | 600 |
+| Stratasys F170 | 30 | 1 100 | 800 |
+| HP Jet Fusion 5200 | 10 | 3 000 | 2 500 |
 
 ---
 
@@ -317,12 +478,12 @@ node src/index.js analyze model.stl --only volume,integrity
 ```bash
 node src/index.js analyze model.stl \
   --material PETG \
-  --price-per-kg 26 \
-  --operator-rate 20 \
+  --price-per-kg 2000 \
+  --operator-rate 500 \
   --profit-margin 30
 ```
 
-### High-quality print settings
+### High-quality print on Bambu Lab X1C
 
 ```bash
 node src/index.js analyze model.stl \
@@ -341,12 +502,36 @@ node src/index.js analyze model.stl \
   --shells 2
 ```
 
+### Engineering part in Nylon CF on Voron 2.4
+
+```bash
+node src/index.js analyze model.stl \
+  --material "Nylon CF" \
+  --printer "Voron 2.4" \
+  --layer-height 0.15 \
+  --infill 50 \
+  --shells 4 \
+  --profit-margin 25
+```
+
+### Resin print on Elegoo Saturn 4 Ultra
+
+```bash
+node src/index.js analyze model.stl \
+  --material "Resin Tough" \
+  --printer "Elegoo Saturn 4 Ultra" \
+  --layer-height 0.05 \
+  --infill 100 \
+  --shells 2
+```
+
 ---
 
 ## Limitations & Notes
 
-- **Slicer accuracy**: The slicer is a geometric engine — it does not generate G-code. Print time and filament estimates are approximations comparable to a first-pass slicer estimate (±10–20%). For production use, cross-validate with Cura/PrusaSlicer.
+- **Slicer accuracy**: The slicer is a geometric engine — it does not generate G-code. Print time and filament estimates are approximations comparable to a first-pass slicer estimate (±10–20%). For production use, cross-validate with Cura/PrusaSlicer/Bambu Studio.
 - **Support style**: Supports are generated as vertical cylindrical pillars (FDM-style). Tree supports, raft, and brim are not modelled.
+- **Resin printing**: When using resin materials and SLA/MSLA printers, set `--infill 100` and `--shells 2` since resin parts are typically solid.
 - **Non-watertight models**: Volume calculation will still run on non-manifold meshes but may give incorrect results. Repair the model first with Meshmixer/PrusaSlicer/Netfabb for accurate results.
 - **Large files**: Models with >500k triangles may take 10–30 seconds for the integrity check and slicer step. The slicer pre-buckets triangles by Z range to avoid O(n²) complexity.
 - **ASCII STL**: Both binary and ASCII STL formats are supported. Binary is preferred for performance.
