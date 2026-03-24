@@ -18,13 +18,181 @@
 // density    : плотность в г/см³
 
 const MATERIAL_PRESETS = {
+  // ── PLA и его вариации ────────────────────────────────────────────────────
   PLA: { pricePerKg: 1800, density: 1.24, label: "PLA (стандартный)" },
+  "PLA+": { pricePerKg: 2200, density: 1.24, label: "PLA+ (усиленный)" },
+  "PLA Silk": { pricePerKg: 2500, density: 1.24, label: "PLA Silk (шёлковый)" },
+  "PLA Matte": {
+    pricePerKg: 2300,
+    density: 1.24,
+    label: "PLA Matte (матовый)",
+  },
+  "PLA Metal": {
+    pricePerKg: 3500,
+    density: 1.6,
+    label: "PLA Metal (металлизированный)",
+  },
+  "PLA Wood": {
+    pricePerKg: 3000,
+    density: 1.15,
+    label: "PLA Wood (с древесным наполнением)",
+  },
+  "PLA Marble": {
+    pricePerKg: 2800,
+    density: 1.27,
+    label: "PLA Marble (под мрамор)",
+  },
+  "PLA Glow": {
+    pricePerKg: 2600,
+    density: 1.24,
+    label: "PLA Glow (светящийся)",
+  },
+  "PLA-CF": {
+    pricePerKg: 4500,
+    density: 1.3,
+    label: "PLA Carbon Fiber (с углеволокном)",
+  },
+  "PLA HT": { pricePerKg: 3200, density: 1.24, label: "PLA HT (термостойкий)" },
+
+  // ── ABS и его вариации ────────────────────────────────────────────────────
   ABS: { pricePerKg: 1600, density: 1.04, label: "ABS (стандартный)" },
-  PETG: { pricePerKg: 2000, density: 1.27, label: "PETG (стандартный)" },
-  TPU: { pricePerKg: 3200, density: 1.21, label: "TPU (гибкий)" },
+  "ABS+": { pricePerKg: 2000, density: 1.04, label: "ABS+ (усиленный)" },
+  "ABS-CF": {
+    pricePerKg: 4800,
+    density: 1.1,
+    label: "ABS Carbon Fiber (с углеволокном)",
+  },
   ASA: { pricePerKg: 2400, density: 1.07, label: "ASA (УФ-стойкий)" },
-  Nylon: { pricePerKg: 4000, density: 1.14, label: "Нейлон" },
-  Resin: { pricePerKg: 4500, density: 1.1, label: "Фотополимер (смола)" },
+  "ASA-CF": {
+    pricePerKg: 5000,
+    density: 1.12,
+    label: "ASA Carbon Fiber (с углеволокном)",
+  },
+
+  // ── PETG и его вариации ───────────────────────────────────────────────────
+  PETG: { pricePerKg: 2000, density: 1.27, label: "PETG (стандартный)" },
+  "PETG-CF": {
+    pricePerKg: 4500,
+    density: 1.35,
+    label: "PETG Carbon Fiber (с углеволокном)",
+  },
+  "PETG Silk": {
+    pricePerKg: 2600,
+    density: 1.27,
+    label: "PETG Silk (шёлковый)",
+  },
+  "PETG HF": {
+    pricePerKg: 2800,
+    density: 1.27,
+    label: "PETG High Flow (высокоскоростной)",
+  },
+
+  // ── TPU / гибкие ─────────────────────────────────────────────────────────
+  TPU: { pricePerKg: 3200, density: 1.21, label: "TPU (гибкий, 95A)" },
+  "TPU 85A": { pricePerKg: 3500, density: 1.2, label: "TPU 85A (мягкий)" },
+  "TPU 98A": { pricePerKg: 3100, density: 1.22, label: "TPU 98A (жёсткий)" },
+  TPE: { pricePerKg: 3800, density: 1.18, label: "TPE (эластомер)" },
+  TPU95HF: {
+    pricePerKg: 3600,
+    density: 1.21,
+    label: "TPU HF (высокоскоростной)",
+  },
+
+  // ── Нейлон и его вариации ─────────────────────────────────────────────────
+  Nylon: { pricePerKg: 4000, density: 1.14, label: "Нейлон PA6" },
+  "Nylon PA12": { pricePerKg: 4500, density: 1.01, label: "Нейлон PA12" },
+  "Nylon CF": {
+    pricePerKg: 7500,
+    density: 1.2,
+    label: "Нейлон Carbon Fiber (с углеволокном)",
+  },
+  "Nylon GF": {
+    pricePerKg: 6000,
+    density: 1.35,
+    label: "Нейлон Glass Fiber (со стекловолокном)",
+  },
+  "Nylon+": {
+    pricePerKg: 5000,
+    density: 1.14,
+    label: "Нейлон PA6+ (усиленный)",
+  },
+
+  // ── Высокотемпературные ───────────────────────────────────────────────────
+  PC: { pricePerKg: 5000, density: 1.2, label: "Поликарбонат (PC)" },
+  "PC-CF": {
+    pricePerKg: 8000,
+    density: 1.27,
+    label: "PC Carbon Fiber (с углеволокном)",
+  },
+  "PC-ABS": { pricePerKg: 4000, density: 1.1, label: "PC-ABS (сплав)" },
+  PEEK: { pricePerKg: 35000, density: 1.32, label: "PEEK (высокоэффективный)" },
+  PEI: { pricePerKg: 25000, density: 1.27, label: "PEI / Ultem (жаростойкий)" },
+  PEKK: { pricePerKg: 40000, density: 1.3, label: "PEKK (авиационный)" },
+  PPS: { pricePerKg: 28000, density: 1.35, label: "PPS (химически стойкий)" },
+  PSU: { pricePerKg: 22000, density: 1.24, label: "PSU (полисульфон)" },
+  HIPS: {
+    pricePerKg: 1700,
+    density: 1.04,
+    label: "HIPS (растворимые поддержки)",
+  },
+
+  // ── Специальные / экзотические ────────────────────────────────────────────
+  PVOH: {
+    pricePerKg: 12000,
+    density: 1.23,
+    label: "PVA / PVOH (водорастворимые поддержки)",
+  },
+  PP: { pricePerKg: 3500, density: 0.9, label: "Полипропилен (PP)" },
+  "PP-CF": {
+    pricePerKg: 6500,
+    density: 1.0,
+    label: "PP Carbon Fiber (с углеволокном)",
+  },
+  PMMA: { pricePerKg: 4500, density: 1.19, label: "PMMA / Акрил (прозрачный)" },
+  "Co-Polyester": {
+    pricePerKg: 3800,
+    density: 1.23,
+    label: "Co-Polyester (Amphora)",
+  },
+  PVB: { pricePerKg: 5000, density: 1.19, label: "PVB (полируемый)" },
+
+  // ── Смоляные (для SLA/MSLA/DLP) ──────────────────────────────────────────
+  Resin: { pricePerKg: 4500, density: 1.1, label: "Фотополимер стандартный" },
+  "Resin ABS-like": {
+    pricePerKg: 5000,
+    density: 1.1,
+    label: "Фотополимер ABS-подобный",
+  },
+  "Resin Tough": {
+    pricePerKg: 6000,
+    density: 1.15,
+    label: "Фотополимер Tough (ударопрочный)",
+  },
+  "Resin Flexible": {
+    pricePerKg: 7000,
+    density: 1.1,
+    label: "Фотополимер Flexible (гибкий)",
+  },
+  "Resin Castable": {
+    pricePerKg: 12000,
+    density: 1.05,
+    label: "Фотополимер Castable (для литья)",
+  },
+  "Resin Dental": {
+    pricePerKg: 20000,
+    density: 1.15,
+    label: "Фотополимер Dental (стоматологический)",
+  },
+  "Resin Water-Washable": {
+    pricePerKg: 5500,
+    density: 1.1,
+    label: "Фотополимер водосмываемый",
+  },
+  "Resin 8K": {
+    pricePerKg: 5000,
+    density: 1.1,
+    label: "Фотополимер 8K (высокодетализированный)",
+  },
 };
 
 // ─── Пресеты принтеров ────────────────────────────────────────────────────────
