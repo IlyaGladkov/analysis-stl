@@ -1,0 +1,36 @@
+# Development files
+.git
+.gitignore
+.editorconfig
+
+# Testing
+.github
+*.test.js
+*.spec.js
+test/
+tests/
+__tests__/
+coverage/
+
+# Development dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+.DS_Store
+.env
+.env.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# Build and distribution
+dist/
+build/
+*.tgz
+

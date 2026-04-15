@@ -1,22 +1,59 @@
 {
   "name": "stl-analyzer",
   "version": "1.0.0",
-  "description": "Advanced STL file analyzer with slicing, support detection and cost estimation",
-  "main": "src/index.js",
+  "description": "Advanced STL file analyzer with slicing, support detection and cost estimation. Perfect for 3D printing workflows.",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "require": "./lib/index.js"
+    }
+  },
+  "bin": {
+    "stl-analyzer": "./bin/cli.js"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "start": "node src/index.js",
-    "analyze": "node src/index.js analyze",
-    "demo": "node src/demo.js"
+    "start": "node bin/cli.js",
+    "analyze": "node bin/cli.js analyze",
+    "demo": "node bin/cli.js demo",
+    "prepublishOnly": "npm run test",
+    "test": "echo \"Tests would run here\""
   },
   "keywords": [
     "stl",
     "3d-printing",
     "slicer",
     "analysis",
-    "cost-estimation"
+    "cost-estimation",
+    "mesh",
+    "3d-model",
+    "3d-printer",
+    "fdm",
+    "volume",
+    "integrity",
+    "support-detection",
+    "slicing"
   ],
-  "author": "",
+  "author": "Ilya Gladkov",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IlyaGladkov/analysis-stl.git"
+  },
+  "homepage": "https://github.com/IlyaGladkov/analysis-stl#readme",
+  "bugs": {
+    "url": "https://github.com/IlyaGladkov/analysis-stl/issues"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  },
   "dependencies": {
     "chalk": "^4.1.2",
     "cli-table3": "^0.6.5",
